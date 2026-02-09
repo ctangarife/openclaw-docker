@@ -99,6 +99,22 @@
             </div>
           </template>
 
+          <template v-else-if="form.provider === 'ollama'">
+            <div class="form-group">
+              <label>Ollama Server URL *</label>
+              <input v-model="form.ollamaBaseUrl" placeholder="http://host.docker.internal:11434/v1" required class="input" />
+              <p class="help-text">
+                URL del servidor Ollama. Usa <code>host.docker.internal</code> si Ollama corre en tu máquina.
+                En Linux usa la IP de tu máquina (ej: <code>http://192.168.1.100:11434/v1</code>).
+              </p>
+            </div>
+            <div class="form-group info-box">
+              <p><strong>Nota:</strong> Ollama debe estar corriendo antes de sincronizar.</p>
+              <p>Para verificar: <code>curl http://localhost:11434/api/tags</code></p>
+              <p>Modelos comunes: llama3.3, mistral, codellama, gemma2, qwen2</p>
+            </div>
+          </template>
+
           <template v-else-if="form.provider === 'synthetic'">
             <div class="form-group">
               <label>API Key *</label>
@@ -109,17 +125,37 @@
           <template v-else-if="form.provider">
             <div class="form-group">
               <label>{{ selectedProviderInfo?.tokenLabel || 'Token / API Key' }} *</label>
-              <input
-                v-model="form.token"
-                type="password"
-                :placeholder="selectedProviderInfo?.tokenPlaceholder || 'Ingresa tu API key'"
-                :required="!editingId"
-                class="input"
-              />
+              <div class="input-with-action">
+                <input
+                  v-model="form.token"
+                  type="password"
+                  :placeholder="selectedProviderInfo?.tokenPlaceholder || 'Ingresa tu API key'"
+                  :required="!editingId"
+                  class="input"
+                  @keyup.enter="validateToken"
+                />
+                <button
+                  type="button"
+                  class="btn-validate"
+                  @click="validateToken"
+                  :disabled="validating || !form.token"
+                  title="Validar API key antes de guardar"
+                >
+                  <span v-if="validating">⏳</span>
+                  <span v-else>✓</span>
+                </button>
+              </div>
               <p v-if="selectedProviderInfo?.helpUrl" class="help-text">
                 <a :href="selectedProviderInfo.helpUrl" target="_blank" rel="noopener noreferrer">
                   {{ selectedProviderInfo.helpText || 'Más información' }} →
                 </a>
+              </p>
+              <p v-if="validationResult" class="validation-result" :class="validationResult.valid ? 'success' : 'error'">
+                <span v-if="validationResult.valid">✅ {{ validationResult.message }}</span>
+                <span v-else>❌ {{ validationResult.error }}</span>
+              </p>
+              <p v-if="validationResult?.warning" class="validation-result warning">
+                ⚠️ {{ validationResult.warning }}
               </p>
             </div>
           </template>
@@ -227,12 +263,15 @@ const syncing = ref(false);
 const loadingProviders = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
+const validating = ref(false);
+const validationResult = ref<{ valid: boolean; message?: string; error?: string; warning?: string } | null>(null);
 const form = ref({
   provider: "",
   name: "",
   token: "",
   cloudflareAccountId: "",
   cloudflareGatewayId: "",
+  ollamaBaseUrl: "",
 });
 
 // Agrupar providers por grupo
@@ -296,6 +335,52 @@ function onProviderChange() {
   if (!editingId.value && selectedProviderInfo.value) {
     form.value.name = selectedProviderInfo.value.defaultName;
   }
+  // Limpiar resultado de validación al cambiar provider
+  validationResult.value = null;
+}
+
+async function validateToken() {
+  if (!form.value.token || !form.value.provider) {
+    validationResult.value = {
+      valid: false,
+      error: "Ingresa una API key para validar"
+    };
+    return;
+  }
+
+  validating.value = true;
+  validationResult.value = null;
+
+  try {
+    // Preparar metadata si es Cloudflare
+    const metadata: Record<string, any> = {};
+    if (form.value.provider === "cloudflare-ai-gateway") {
+      metadata.accountId = form.value.cloudflareAccountId;
+      metadata.gatewayId = form.value.cloudflareGatewayId;
+    }
+
+    const result = await api.validateCredential(form.value.provider, form.value.token, metadata);
+
+    if (result.valid) {
+      validationResult.value = {
+        valid: true,
+        message: result.info || `API key válida para ${selectedProviderInfo.value?.label || form.value.provider}`,
+        warning: result.warning
+      };
+    } else {
+      validationResult.value = {
+        valid: false,
+        error: result.error || "API key inválida"
+      };
+    }
+  } catch (e) {
+    validationResult.value = {
+      valid: false,
+      error: e instanceof Error ? e.message : "Error al validar la API key"
+    };
+  } finally {
+    validating.value = false;
+  }
 }
 
 async function loadProviders() {
@@ -322,12 +407,14 @@ async function load() {
 function cancelForm() {
   showForm.value = false;
   editingId.value = null;
+  validationResult.value = null;
   form.value = {
     provider: "",
     name: "",
     token: "",
     cloudflareAccountId: "",
     cloudflareGatewayId: "",
+    ollamaBaseUrl: "",
   };
 }
 
@@ -339,17 +426,20 @@ function edit(c: Credential) {
     token: "",
     cloudflareAccountId: c.metadata?.accountId || "",
     cloudflareGatewayId: c.metadata?.gatewayId || "",
+    ollamaBaseUrl: c.metadata?.baseUrl || "",
   };
   showForm.value = true;
 }
 
 async function saveCredential() {
   try {
-    // Para Cloudflare, guardamos metadata adicional
+    // Para Cloudflare y Ollama, guardamos metadata adicional
     const metadata: Record<string, any> = {};
     if (form.value.provider === "cloudflare-ai-gateway") {
       metadata.accountId = form.value.cloudflareAccountId;
       metadata.gatewayId = form.value.cloudflareGatewayId;
+    } else if (form.value.provider === "ollama") {
+      metadata.baseUrl = form.value.ollamaBaseUrl;
     }
 
     if (editingId.value) {
@@ -594,6 +684,51 @@ onMounted(() => {
   transition: border-color 0.2s;
 }
 
+.input-with-action {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.input-with-action .input {
+  flex: 1;
+}
+
+.btn-validate {
+  padding: 0 1rem;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-validate:hover:not(:disabled) {
+  background: #475569;
+  border-color: #64748b;
+}
+
+.btn-validate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-validate.success {
+  background: #065f46;
+  border-color: #059669;
+}
+
+.btn-validate.error {
+  background: #7f1d1d;
+  border-color: #dc2626;
+}
+
 .input:focus,
 .select-provider:focus {
   outline: none;
@@ -619,6 +754,57 @@ onMounted(() => {
 
 .help-text a:hover {
   text-decoration: underline;
+}
+
+.validation-result {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.validation-result.success {
+  background: #064e3b;
+  color: #6ee7b7;
+  border: 1px solid #059669;
+}
+
+.validation-result.error {
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 1px solid #dc2626;
+}
+
+.validation-result.warning {
+  background: #78350f;
+  color: #fcd34d;
+  border: 1px solid #f59e0b;
+}
+
+.info-box {
+  padding: 1rem;
+  background: #1e3a5f;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  margin-top: 0.5rem;
+}
+
+.info-box p {
+  margin: 0.25rem 0;
+  font-size: 0.875rem;
+  color: #bfdbfe;
+  line-height: 1.5;
+}
+
+.info-box code {
+  background: #1e3a8a;
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
 }
 
 .form-actions {

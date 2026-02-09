@@ -6,6 +6,8 @@ const { encrypt, decrypt } = require("../lib/encrypt");
 const { syncAuthProfiles } = require("../lib/sync-openclaw-auth");
 const { restartGateway, checkDockerAvailable } = require("../lib/docker-utils");
 const { NATIVE_PROVIDERS, NATIVE_PROVIDER_MODEL_LIST, PROVIDER_TEMPLATES, getDefaultModel } = require("../lib/provider-templates");
+const { validateProviderKey, validateCloudflareGateway } = require("../lib/validate-provider");
+const { sseManager } = require("../lib/notifications");
 
 // Función para invalidar caché de modelos (importada dinámicamente para evitar dependencia circular)
 function clearModelsCache() {
@@ -214,6 +216,38 @@ router.get("/available-providers", (req, res) => {
         tokenPlaceholder: "Ingresa tu API key",
         helpUrl: null,
         helpText: null
+      },
+      {
+        value: "ollama",
+        label: "Ollama (Local)",
+        group: "Local",
+        description: "Ollama para ejecutar modelos localmente. No requiere API key. Necesita Ollama corriendo en tu máquina.",
+        defaultName: "Ollama Local",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: "https://ollama.com/download",
+        helpText: "Descargar Ollama",
+        requiresMetadata: true,
+        metadataFields: [
+          { name: "baseUrl", label: "Ollama URL", placeholder: "http://host.docker.internal:11434/v1" }
+        ],
+        note: "Ollama debe estar corriendo. Usa 'host.docker.internal' si está en tu máquina o la IP de tu red."
+      },
+      {
+        value: "telegram",
+        label: "Telegram Bot",
+        group: "Integraciones",
+        description: "Conecta OpenClaw a Telegram como bot. Necesita token del bot de @BotFather.",
+        defaultName: "Telegram Bot",
+        tokenLabel: "Telegram Bot Token",
+        tokenPlaceholder: "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ",
+        helpUrl: "https://core.telegram.org/bots/api",
+        helpText: "Documentación Telegram Bot API",
+        requiresMetadata: true,
+        metadataFields: [
+          { name: "chatId", label: "Chat ID", placeholder: "123456789 (o -1001234567890 para grupos)" }
+        ],
+        note: "Crea un bot con @BotFather en Telegram y obtén tu Chat ID enviando /start a tu bot."
       }
     ];
 
@@ -249,6 +283,50 @@ router.get("/available-providers", (req, res) => {
     res.json(providers);
   } catch (e) {
     console.error('[available-providers] Error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/credentials/validate
+ * Valida una API key antes de guardarla
+ * Body: { provider: string, token: string, metadata?: object }
+ * Returns: { valid: boolean, error?: string, warning?: string, info?: string, details?: any }
+ */
+router.post("/validate", async (req, res) => {
+  try {
+    const { provider, token, metadata } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ error: "provider is required" });
+    }
+
+    if (!token) {
+      return res.status(400).json({ error: "token is required" });
+    }
+
+    console.log(`[POST /validate] Validando API key para provider: ${provider}`);
+
+    // Caso especial para Cloudflare AI Gateway
+    if (provider === 'cloudflare-ai-gateway') {
+      const { accountId, gatewayId } = metadata || {};
+      const result = await validateCloudflareGateway(accountId, gatewayId, token);
+      console.log(`[POST /validate] Cloudflare Gateway validation:`, result.valid ? '✅ válido' : '❌ inválido');
+      return res.json(result);
+    }
+
+    // Validación estándar para otros providers
+    const result = await validateProviderKey(provider, token, metadata);
+    console.log(`[POST /validate] Provider ${provider}:`, result.valid ? '✅ válido' : '❌ inválido');
+
+    if (result.warning) {
+      console.log(`[POST /validate] ⚠️  Warning: ${result.warning}`);
+    }
+
+    res.json(result);
+
+  } catch (e) {
+    console.error('[POST /validate] Error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -439,12 +517,35 @@ router.post("/sync", async (req, res) => {
   // Forzar flush
   if (process.stdout.flush) process.stdout.flush();
   if (process.stderr.flush) process.stderr.flush();
+
+  // Enviar notificación de inicio de sync
+  try {
+    sseManager.broadcast({
+      type: 'sync_started',
+      message: 'Iniciando sincronización con OpenClaw...',
+      timestamp: new Date().toISOString()
+    }, 'sync_started');
+  } catch (e) {
+    // Notificaciones opcionales
+  }
+
   try {
     // El volumen se monta como ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
     // IMPORTANTE: Usar siempre ruta absoluta del contenedor para que coincida con el volumen montado
     const agentDir = process.env.OPENCLAW_AGENT_DIR || '/home/node/.openclaw/agents/main/agent';
     const openclawJsonPath = '/home/node/.openclaw/openclaw.json';
     console.log(`[POST /sync] Llamando syncAuthProfiles con agentDir=${agentDir}, openclawJsonPath=${openclawJsonPath}`);
+
+    // Notificar progreso
+    try {
+      sseManager.broadcast({
+        type: 'sync_progress',
+        progress: 25,
+        message: 'Sincronizando credenciales...',
+        timestamp: new Date().toISOString()
+      }, 'sync_progress');
+    } catch (e) {}
+
     const result = await syncAuthProfiles(agentDir, openclawJsonPath);
     console.log(`[POST /sync] syncAuthProfiles completado, success=${result.success}`);
     
@@ -478,7 +579,23 @@ router.post("/sync", async (req, res) => {
       
       // Reiniciar openclaw-gateway automáticamente para que lea el archivo actualizado
       console.log(`[POST /sync] Intentando reiniciar contenedor...`);
-      
+
+      // Notificar progreso de reinicio
+      try {
+        sseManager.broadcast({
+          type: 'sync_progress',
+          progress: 75,
+          message: 'Reiniciando gateway...',
+          timestamp: new Date().toISOString()
+        }, 'sync_progress');
+
+        sseManager.broadcast({
+          type: 'gateway_restarting',
+          message: 'Reiniciando OpenClaw Gateway...',
+          timestamp: new Date().toISOString()
+        }, 'gateway_restarting');
+      } catch (e) {}
+
       // Verificar que docker está disponible
       const dockerCheck = await checkDockerAvailable();
       if (!dockerCheck.available) {
@@ -486,14 +603,34 @@ router.post("/sync", async (req, res) => {
       } else {
         console.log(`[POST /sync] Docker disponible: ${dockerCheck.version}`);
       }
-      
+
       const restartResult = await restartGateway();
       const restartSuccess = restartResult.success;
       const restartError = restartResult.error;
       
       // Forzar flush de logs antes de responder
       process.stdout.write(`[POST /sync] Respondiendo con éxito. restartSuccess=${restartSuccess}\n`);
-      
+
+      // Notificar completion
+      try {
+        sseManager.broadcast({
+          type: 'sync_completed',
+          progress: 100,
+          message: `Sincronización exitosa: ${result.profiles.length} credencial(es)`,
+          profiles: result.profiles,
+          gatewayRestarted: restartSuccess,
+          timestamp: new Date().toISOString()
+        }, 'sync_completed');
+
+        if (restartSuccess) {
+          sseManager.broadcast({
+            type: 'gateway_restarted',
+            message: 'Gateway reiniciado exitosamente',
+            timestamp: new Date().toISOString()
+          }, 'gateway_restarted');
+        }
+      } catch (e) {}
+
       res.json({
         success: true,
         message: `Sincronizadas ${result.profiles.length} credencial(es)`,
@@ -505,19 +642,37 @@ router.post("/sync", async (req, res) => {
         fileExists: fileExists,
         gatewayRestarted: restartSuccess,
         restartError: restartError || undefined,
-        note: restartSuccess 
+        note: restartSuccess
           ? `✅ Archivo sincronizado y contenedor reiniciado. OpenClaw debería leer las nuevas credenciales.`
-          : fileExists 
+          : fileExists
             ? `⚠️  Archivo creado pero no se pudo reiniciar el contenedor. Reinicia manualmente o usa POST /api/gateway/restart`
             : "⚠️  El archivo no se creó correctamente. Revisa los logs del config-service."
       });
     } else {
+      // Notificar error en sync
+      try {
+        sseManager.broadcast({
+          type: 'sync_failed',
+          error: result.error,
+          timestamp: new Date().toISOString()
+        }, 'sync_failed');
+      } catch (e) {}
+
       res.status(500).json({
         success: false,
         error: result.error
       });
     }
   } catch (e) {
+    // Notificar error excepcional
+    try {
+      sseManager.broadcast({
+        type: 'sync_failed',
+        error: e.message,
+        timestamp: new Date().toISOString()
+      }, 'sync_failed');
+    } catch (err) {}
+
     res.status(500).json({ error: e.message });
   }
 });

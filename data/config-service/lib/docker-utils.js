@@ -6,6 +6,7 @@
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
+const { retryRestart } = require('./retry');
 
 const GATEWAY_CONTAINER = process.env.OPENCLAW_GATEWAY_CONTAINER || 'molbot-openclaw-gateway';
 
@@ -46,9 +47,9 @@ async function dockerCommand(command, args = [], options = {}) {
  */
 async function restartGateway() {
   console.log(`[docker-utils] Reiniciando contenedor: ${GATEWAY_CONTAINER}`);
-  
+
   const result = await dockerCommand('restart', [GATEWAY_CONTAINER], { timeout: 15000 });
-  
+
   if (result.success) {
     console.log(`[docker-utils] ✅ Contenedor ${GATEWAY_CONTAINER} reiniciado exitosamente`);
     return {
@@ -62,6 +63,22 @@ async function restartGateway() {
       error: result.error || 'Error desconocido al reiniciar contenedor'
     };
   }
+}
+
+/**
+ * Reinicia el contenedor de openclaw-gateway con reintentos automáticos
+ * Wrapper sobre restartGateway que implementa retry con exponential backoff
+ * @returns {Promise<{success: boolean, message?: string, error?: string}>}
+ */
+async function restartGatewayWithRetry() {
+  return retryRestart(
+    () => restartGateway(),
+    {
+      onRetry: (attempt, error) => {
+        console.log(`[restartGatewayWithRetry] Reintentando reinicio (intento ${attempt})`);
+      }
+    }
+  );
 }
 
 /**
@@ -159,6 +176,7 @@ async function checkDockerAvailable() {
 
 module.exports = {
   restartGateway,
+  restartGatewayWithRetry,  // Nueva función con retry automático
   execInGateway,
   checkGatewayStatus,
   getGatewayLogs,

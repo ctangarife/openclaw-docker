@@ -139,7 +139,7 @@ const PROVIDER_TEMPLATES = {
     ]
   },
   ollama: {
-    baseUrl: "http://localhost:11434/v1",
+    baseUrl: "http://host.docker.internal:11434/v1",
     api: "openai-completions",
     models: [
       {
@@ -149,6 +149,60 @@ const PROVIDER_TEMPLATES = {
         input: ["text"],
         cost: { input: 0, output: 0 },
         contextWindow: 128000,
+        maxTokens: 8192
+      },
+      {
+        id: "llama3.2",
+        name: "Llama 3.2",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192
+      },
+      {
+        id: "llama3.1",
+        name: "Llama 3.1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192
+      },
+      {
+        id: "mistral",
+        name: "Mistral 7B",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 32768,
+        maxTokens: 8192
+      },
+      {
+        id: "codellama",
+        name: "Code Llama",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 16384,
+        maxTokens: 4096
+      },
+      {
+        id: "gemma2",
+        name: "Gemma 2",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 8192,
+        maxTokens: 8192
+      },
+      {
+        id: "qwen2",
+        name: "Qwen 2",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0 },
+        contextWindow: 32768,
         maxTokens: 8192
       }
     ]
@@ -168,25 +222,35 @@ function getProviderTemplate(provider) {
  * Genera la configuración de providers para models.json basándose en credenciales habilitadas
  * Solo genera configuración para providers PERSONALIZADOS (no nativos)
  * @param {Array<string>} enabledProviders - Lista de providers habilitados
+ * @param {Array<object>} [credentials] - Credenciales completas para extraer metadata
  * @returns {object} - Configuración de providers para models.json
  */
-function generateModelsConfig(enabledProviders) {
+function generateModelsConfig(enabledProviders, credentials = []) {
   const providers = {};
-  
+
+  // Crear mapa de credenciales por provider para acceso rápido a metadata
+  const credentialsMap = new Map();
+  for (const cred of credentials) {
+    credentialsMap.set(cred.provider, cred.metadata || {});
+  }
+
   // Solo agregar providers PERSONALIZADOS (no nativos)
   for (const providerName of enabledProviders) {
     if (!NATIVE_PROVIDERS.has(providerName)) {
       const template = getProviderTemplate(providerName);
       if (template) {
+        const metadata = credentialsMap.get(providerName) || {};
+
         providers[providerName] = {
-          baseUrl: template.baseUrl,
+          // Usar baseUrl de metadata si existe (ej: Ollama), sino el del template
+          baseUrl: metadata.baseUrl || template.baseUrl,
           api: template.api,
           models: template.models
         };
       }
     }
   }
-  
+
   return { providers };
 }
 
@@ -194,18 +258,28 @@ function generateModelsConfig(enabledProviders) {
  * Genera la configuración de providers para openclaw.json basándose en credenciales habilitadas
  * Solo genera configuración para providers PERSONALIZADOS (no nativos)
  * @param {Array<string>} enabledProviders - Lista de providers habilitados
+ * @param {Array<object>} [credentials] - Credenciales completas para extraer metadata
  * @returns {object} - Configuración de providers para openclaw.json
  */
-function generateOpenclawProvidersConfig(enabledProviders) {
+function generateOpenclawProvidersConfig(enabledProviders, credentials = []) {
   const providers = {};
-  
+
+  // Crear mapa de credenciales por provider para acceso rápido a metadata
+  const credentialsMap = new Map();
+  for (const cred of credentials) {
+    credentialsMap.set(cred.provider, cred.metadata || {});
+  }
+
   // Solo agregar providers PERSONALIZADOS (no nativos)
   for (const providerName of enabledProviders) {
     if (!NATIVE_PROVIDERS.has(providerName)) {
       const template = getProviderTemplate(providerName);
       if (template) {
+        const metadata = credentialsMap.get(providerName) || {};
+
         providers[providerName] = {
-          baseUrl: template.baseUrl,
+          // Usar baseUrl de metadata si existe (ej: Ollama), sino el del template
+          baseUrl: metadata.baseUrl || template.baseUrl,
           api: template.api,
           models: template.models
           // apiKey se omite - se gestiona desde auth-profiles.json
@@ -213,7 +287,7 @@ function generateOpenclawProvidersConfig(enabledProviders) {
       }
     }
   }
-  
+
   return providers;
 }
 

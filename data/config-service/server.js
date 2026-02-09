@@ -6,7 +6,15 @@ const mongoose = require("mongoose");
 const credentialsRouter = require("./routes/credentials");
 const configRouter = require("./routes/config");
 const gatewayRouter = require("./routes/gateway");
+const auditRouter = require("./routes/audit");
+const notificationsRouter = require("./routes/notifications");
+const channelsRouter = require("./routes/channels");
+const telegramRouter = require("./routes/telegram");
+const integrationsRouter = require("./routes/integrations");
 const authMiddleware = require("./middleware/auth");
+const { getSystemHealth, getSimpleHealth } = require("./lib/health-check");
+const { auditMiddleware, notify } = require("./lib/audit-log");
+const { sseManager, notify: sseNotify } = require("./lib/notifications");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,6 +27,9 @@ if (process.stdout.isTTY) {
 }
 
 app.use(cors({ origin: true }));
+
+// Middleware de auditoría - loggea cambios en credenciales, config, etc.
+app.use(auditMiddleware());
 
 // Middleware de logging ANTES de cualquier otra cosa - FORZAR escritura inmediata
 app.use((req, res, next) => {
@@ -51,27 +62,44 @@ app.get("/test-ping", (req, res) => {
 app.use("/api/credentials", authMiddleware, credentialsRouter);
 app.use("/api/config", authMiddleware, configRouter);
 app.use("/api/gateway", authMiddleware, gatewayRouter);
+app.use("/api/audit", auditRouter);
+app.use("/api/notifications", notificationsRouter);
+app.use("/api/channels", authMiddleware, channelsRouter);
+app.use("/api/telegram", telegramRouter);
+app.use("/api/integrations", authMiddleware, integrationsRouter);
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "molbot-config-service" });
-});
+// Health check con dos modos:
+// - Simple (para load balancers): GET /health
+// - Detallado (para monitoreo): GET /health?detailed=true
+app.get("/health", async (req, res) => {
+  const detailed = req.query.detailed === 'true';
 
-// Endpoint de prueba SIN autenticación para verificar que el servidor recibe peticiones
-app.get("/test-ping", (req, res) => {
-  const timestamp = new Date().toISOString();
-  const logMsg = `[${timestamp}] [GET /test-ping] Petición recibida\n`;
-  process.stdout.write(logMsg);
-  process.stderr.write(logMsg);
-  console.log(`[${timestamp}] [GET /test-ping] Petición recibida`);
-  res.json({ status: "ok", timestamp, message: "Servidor funcionando" });
-});
+  if (detailed) {
+    try {
+      const health = await getSystemHealth();
 
-// Endpoint de prueba para verificar logs
-app.get("/test-logs", (req, res) => {
-  console.log("TEST LOGS ENDPOINT CALLED");
-  process.stdout.write("STDOUT: TEST LOGS ENDPOINT\n");
-  process.stderr.write("STDERR: TEST LOGS ENDPOINT\n");
-  res.json({ test: "logs", timestamp: new Date().toISOString() });
+      // Determinar HTTP status code basado en health status
+      const statusCode = health.overall === 'unhealthy' ? 503
+                        : health.overall === 'warning' ? 200  // Warning sigue siendo 200 pero con info
+                        : 200;
+
+      res.status(statusCode).json(health);
+    } catch (error) {
+      res.status(503).json({
+        overall: 'unhealthy',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } else {
+    // Health check simple para load balancers
+    const simple = await getSimpleHealth();
+    const statusCode = simple.status === 'healthy' ? 200 : 503;
+    res.status(statusCode).json({
+      status: simple.status,
+      service: "molbot-config-service"
+    });
+  }
 });
 
 // Redirección al Dashboard de OpenClaw con token (sin comandos ni pegar token).

@@ -191,17 +191,111 @@ CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KE
 chown -R node:node "$CONFIG_DIR" 2>/dev/null || true
 chmod -R 755 "$CONFIG_DIR" 2>/dev/null || true
 
+# Función para cargar archivo .env y exportar variables
+load_env_file() {
+  local env_file="$1"
+  if [ -f "$env_file" ]; then
+    # Leer el archivo línea por línea y exportar variables
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Ignorar comentarios y líneas vacías
+      case "$line" in
+        \#*|'') continue ;;
+      esac
+      # Extraer nombre y valor de la variable
+      # Formato esperado: export KEY="value" o KEY=value
+      if echo "$line" | grep -q "^export "; then
+        # Remover 'export ' y evaluar la línea
+        var_def="${line#export }"
+        var_name="${var_def%%=*}"
+        var_value="${var_def#*=}"
+        # Remover comillas si existen
+        var_value="${var_value%\"}"
+        var_value="${var_value#\"}"
+        export "$var_name=$var_value"
+      fi
+    done < "$env_file"
+  fi
+}
+
+# Función para cargar archivo .env y exportar variables
+load_env_file() {
+  local env_file="$1"
+  if [ -f "$env_file" ]; then
+    # Leer el archivo línea por línea y exportar variables
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Ignorar comentarios y líneas vacías
+      case "$line" in
+        \#*|'') continue ;;
+      esac
+      # Extraer nombre y valor de la variable
+      # Formato esperado: export KEY="value" o KEY=value
+      if echo "$line" | grep -q "^export "; then
+        # Remover 'export ' y evaluar la línea
+        var_def="${line#export }"
+        var_name="${var_def%%=*}"
+        var_value="${var_def#*=}"
+        # Remover comillas si existen
+        var_value="${var_value%\"}"
+        var_value="${var_value#\"}"
+        export "$var_name=$var_value"
+      fi
+    done < "$env_file"
+  fi
+}
+
 # Cambiar al usuario node y ejecutar OpenClaw
 if [ "$(id -u)" = "0" ]; then
   echo "Cambiando al usuario node para ejecutar gateway..." >&2
-  # Cargar variables de entorno antes de cambiar de usuario
-  if [ -f "/home/node/.openclaw/.env" ]; then
-    set -a
-    . "/home/node/.openclaw/.env" 2>/dev/null || true
-    set +a
-    echo "✅ Variables de entorno cargadas" >&2
+
+  # Crear script wrapper que cargará las variables de entorno como usuario node
+  cat > /tmp/gateway-wrapper.sh << 'WRAPPER_EOF'
+#!/bin/sh
+# Función para cargar archivo .env y exportar variables
+load_env_file() {
+  local env_file="$1"
+  if [ -f "$env_file" ]; then
+    # Leer el archivo línea por línea y exportar variables
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Ignorar comentarios y líneas vacías
+      case "$line" in
+        \#*|'') continue ;;
+      esac
+      # Extraer nombre y valor de la variable
+      # Formato esperado: export KEY="value" o KEY=value
+      if echo "$line" | grep -q "^export "; then
+        # Remover 'export ' y evaluar la línea
+        var_def="${line#export }"
+        var_name="${var_def%%=*}"
+        var_value="${var_def#*=}"
+        # Remover comillas si existen
+        var_value="${var_value%\"}"
+        var_value="${var_value#\"}"
+        export "$var_name=$var_value"
+      fi
+    done < "$env_file"
   fi
-  exec gosu node "$@"
+}
+
+# Cargar variables de entorno como usuario node
+load_env_file "/home/node/.openclaw/.env" && echo "✅ Variables de entorno de API keys cargadas" >&2 || true
+load_env_file "/home/node/.openclaw/integrations.env" && echo "✅ Variables de entorno de integraciones cargadas" >&2 || true
+
+# Debug: verificar que TELEGRAM_BOT_TOKEN está disponible
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "✅ TELEGRAM_BOT_TOKEN está disponible (longitud: ${#TELEGRAM_BOT_TOKEN})" >&2
+else
+  echo "⚠️  TELEGRAM_BOT_TOKEN NO está disponible" >&2
+fi
+
+# Ejecutar el comando con las variables de entorno cargadas
+exec "$@"
+WRAPPER_EOF
+
+  chmod +x /tmp/gateway-wrapper.sh
+  chown node:node /tmp/gateway-wrapper.sh
+
+  # Ejecutar gateway usando el wrapper
+  exec gosu node /tmp/gateway-wrapper.sh "$@"
 else
   exec "$@"
 fi

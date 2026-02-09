@@ -1,7 +1,7 @@
 /**
  * Sincroniza credenciales desde MongoDB a OpenClaw's auth-profiles.json
  * y limpia apiKey de openclaw.json para que todo se gestione desde MongoDB
- * 
+ *
  * El volumen se monta como: ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
  * Así que el agente está en: /home/node/.openclaw/agents/main/agent
  */
@@ -10,12 +10,13 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const { decrypt } = require('./encrypt');
-const { 
-  generateModelsConfig, 
+const {
+  generateModelsConfig,
   generateOpenclawProvidersConfig,
   NATIVE_PROVIDERS,
   getDefaultModel
 } = require('./provider-templates');
+const { retrySync } = require('./retry');
 
 const schema = new mongoose.Schema(
   {
@@ -167,7 +168,10 @@ async function syncAuthProfiles(agentDir, openclawJsonPath = null) {
     const modelsFile = path.join(agentDir, 'models.json');
     const enabledProviderNames = profiles.map(p => p.provider);
     const customProviders = enabledProviderNames.filter(p => !NATIVE_PROVIDERS.has(p));
-    const modelsConfig = generateModelsConfig(enabledProviderNames);
+
+    // Pasar credenciales completas para extraer metadata (baseUrl para Ollama, etc.)
+    const credentialsForConfig = credentials.filter(c => c.enabled);
+    const modelsConfig = generateModelsConfig(enabledProviderNames, credentialsForConfig);
     const modelsContent = JSON.stringify(modelsConfig, null, 2);
     fs.writeFileSync(modelsFile, modelsContent, 'utf8');
     
@@ -203,7 +207,10 @@ async function syncAuthProfiles(agentDir, openclawJsonPath = null) {
     if (openclawJsonPath) {
       try {
         const config = JSON.parse(fs.readFileSync(openclawJsonPath, 'utf8'));
-        const openclawProviders = generateOpenclawProvidersConfig(enabledProviderNames);
+
+        // Pasar credenciales completas para extraer metadata
+        const credentialsForConfig = credentials.filter(c => c.enabled);
+        const openclawProviders = generateOpenclawProvidersConfig(enabledProviderNames, credentialsForConfig);
         
         // Sincronizar providers en openclaw.json
         if (!config.models) config.models = {};
@@ -345,4 +352,30 @@ async function syncAuthProfiles(agentDir, openclawJsonPath = null) {
   }
 }
 
-module.exports = { syncAuthProfiles, cleanApiKeysFromOpenclawJson };
+/**
+ * Sincroniza credenciales con reintentos automáticos
+ * Wrapper sobre syncAuthProfiles que implementa retry con exponential backoff
+ *
+ * @param {string} agentDir - Directorio del agente
+ * @param {string} [openclawJsonPath] - Ruta opcional a openclaw.json
+ * @returns {Promise<object>} Resultado de la sincronización
+ */
+async function syncAuthProfilesWithRetry(agentDir, openclawJsonPath) {
+  return retrySync(
+    () => syncAuthProfiles(agentDir, openclawJsonPath),
+    {
+      maxRetries: 3,
+      baseDelay: 2000,
+      maxDelay: 10000,
+      onRetry: (attempt, error) => {
+        console.log(`[syncAuthProfilesWithRetry] Reintentando sincronización (intento ${attempt})`);
+      }
+    }
+  );
+}
+
+module.exports = {
+  syncAuthProfiles,
+  syncAuthProfilesWithRetry,  // Nueva función con retry automático
+  cleanApiKeysFromOpenclawJson
+};

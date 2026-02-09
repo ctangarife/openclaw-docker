@@ -1,19 +1,20 @@
-# Molbot
+# OPENCLAW DOCKER
 
-Administración centralizada para el bot OpenClaw: configuración y credenciales desde una interfaz web, persistidas en MongoDB con cifrado AES-256-GCM.
+Administración centralizada para el bot OpenClaw: configuración, credenciales e integraciones con plataformas de mensajería desde una interfaz web, persistidas en MongoDB con cifrado AES-256-GCM.
 
 ## Características
 
 - **Gestión de credenciales centralizada**: API keys de múltiples proveedores (Anthropic, OpenAI, MiniMax, etc.)
+- **Integraciones con plataformas de mensajería**: Telegram, Slack, Discord, WhatsApp, y más
 - **Interfaz web moderna**: UI en Vue 3 para administrar todo sin editar archivos
-- **Sincronización automática**: Las credenciales se sincronizan automáticamente con OpenClaw
+- **Sincronización automática**: Las credenciales e integraciones se sincronizan automáticamente con OpenClaw
 - **Seguridad**: Tokens cifrados con AES-256-GCM en MongoDB
 - **.env mínimo**: Solo variables de infraestructura, sin API keys de terceros
 
 ## Stack
 
-- **MongoDB** - Almacenamiento de credenciales y configuración
-- **config-service** (Node.js/Express) - API para gestión de credenciales
+- **MongoDB** - Almacenamiento de credenciales, configuración e integraciones
+- **config-service** (Node.js/Express) - API para gestión de credenciales e integraciones
 - **molbot-ui** (Vue 3) - Interfaz web de administración
 - **Nginx** - Reverse proxy y punto de entrada único
 - **OpenClaw Gateway** - Bot de IA construido desde el [repo oficial](https://github.com/openclaw/openclaw)
@@ -72,7 +73,27 @@ Las credenciales se **sincronizan automáticamente** con OpenClaw y el gateway s
    - Opciones disponibles dependen de las credenciales agregadas
 3. **Guardar cambios**
 
-### Paso 5: Acceder al Dashboard de OpenClaw
+### Paso 5: Configurar integraciones (opcional)
+
+Si quieres que el bot responda en plataformas de mensajería:
+
+1. **Ir a Integraciones**: http://localhost/admin/integrations
+2. **Agregar una integración**:
+   - Click en "+ Agregar integración"
+   - Selecciona la plataforma (Telegram, Slack, Discord, etc.)
+   - Configura los tokens/credenciales necesarios
+   - Click en "Guardar"
+3. **La integración se sincroniza automáticamente** con OpenClaw
+
+**Plataformas soportadas:**
+- **Telegram**: Bot token
+- **Slack**: Bot token, Signing secret, App token
+- **Discord**: Bot token
+- **WhatsApp**: Access token, Phone number, Business ID
+- **MSTeams**: App ID, App password
+- **Line**: Channel access token, Channel secret
+
+### Paso 6: Acceder al Dashboard de OpenClaw
 
 1. **Abrir el Dashboard**: http://localhost/openclaw-dashboard
 2. ¡Listo! Ya puedes chatear con el bot usando las credenciales configuradas
@@ -86,6 +107,7 @@ Las credenciales se **sincronizan automáticamente** con OpenClaw y el gateway s
 | **UI Molbot** | http://localhost | Interfaz de administración |
 | **Credenciales** | http://localhost/admin/credentials | Gestión de API keys |
 | **Configuración** | http://localhost/admin/config | Configuración del modelo |
+| **Integraciones** | http://localhost/admin/integrations | Gestión de plataformas de mensajería |
 | **OpenClaw Dashboard** | http://localhost/openclaw-dashboard | Chat con el bot (token auto-aplicado) |
 | **Healthcheck** | http://localhost:8080/nginx-health | Verificar estado de Nginx |
 
@@ -104,7 +126,9 @@ Las credenciales se **sincronizan automáticamente** con OpenClaw y el gateway s
        ↓
 5. Configurar Modelo (/admin/config)
        ↓
-6. Usar el Bot (/openclaw-dashboard)
+6. (Opcional) Configurar Integraciones (/admin/integrations)
+       ↓
+7. Usar el Bot (/openclaw-dashboard)
 ```
 
 ### Paso 3: Credenciales API
@@ -154,7 +178,11 @@ docker exec molbot-openclaw-gateway cat /home/node/.openclaw/agents/main/agent/a
 
 Sincronizar manualmente:
 ```bash
+# Sincronizar credenciales
 curl -X POST http://localhost/api/credentials/sync -H "X-UI-Secret: TU_UI_SECRET"
+
+# Sincronizar integraciones
+curl -X POST http://localhost/api/integrations/sync -H "X-UI-Secret: TU_UI_SECRET"
 ```
 
 ### Reiniciar un servicio específico
@@ -221,7 +249,7 @@ docker compose restart openclaw-gateway
 │  (Vue 3 /admin) │────▶│  (Node.js:3001) │────▶│     (:27017)    │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
                                 │
-                                ▼ sincroniza credenciales
+                                ▼ sincroniza credenciales e integraciones
                          ┌─────────────────┐
                          │  OpenClaw       │
                          │  Gateway(:18789)│
@@ -233,9 +261,23 @@ docker compose restart openclaw-gateway
                          └─────────────────┘
 ```
 
+### Flujo de Sincronización de Integraciones
+
+Cuando agregas o modificas una integración:
+
+1. La UI envía los datos a `POST /api/integrations`
+2. `config-service` cifra los tokens sensibles con AES-256-GCM
+3. Se guarda en MongoDB (colección `integrations`)
+4. Se sincroniza con `openclaw.json`:
+   - Los tokens se inyectan directamente en la configuración del canal
+   - Los plugins correspondientes se habilitan automáticamente
+5. El gateway se reinicia automáticamente
+6. OpenClaw se conecta a la plataforma de mensajería
+
 ### Colecciones MongoDB
 
 - **`api_credentials`**: Credenciales API cifradas (`provider`, `name`, `tokenEncrypted`, `enabled`, `metadata`)
+- **`integrations`**: Integraciones con plataformas de mensajería (`channelId`, `accountId`, `config`, `encryptedConfig`, `enabled`)
 - **`app_config`**: Configuración de la aplicación (`defaultAgentModel`, etc.)
 
 ---

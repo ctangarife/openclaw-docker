@@ -77,6 +77,18 @@ export async function getAvailableProviders() {
   }>>;
 }
 
+export async function validateCredential(provider: string, token: string, metadata?: Record<string, any>) {
+  const r = await fetch(`${API_BASE}/api/credentials/validate`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify({ provider, token, metadata }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{ valid: boolean; error?: string; warning?: string; info?: string; details?: any }>;
+}
+
+export { getHeaders };
+
 export async function getConfig() {
   const r = await fetch(`${API_BASE}/api/config`, { headers: getHeaders() });
   if (!r.ok) throw new Error(await r.text());

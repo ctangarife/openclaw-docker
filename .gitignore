@@ -11,3 +11,9 @@ data/molbot-workspace/openclaw.json
 **/.git
 doc/*
 data/molbot-workspace/workspace/
+
+
+.claude
+CLAUDE.MD
+
+tmp/*
