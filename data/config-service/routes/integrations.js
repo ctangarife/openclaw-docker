@@ -376,18 +376,40 @@ router.patch('/:_id', async (req, res) => {
     const { _id } = req.params;
     const updates = req.body;
 
+    // Obtener la integración actual para preservar campos sensibles no modificados
+    const existingIntegration = await Integration.findById(_id);
+    if (!existingIntegration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    // Procesar los updates: si un campo sensible viene con _masked: true o contiene '...', mantener el original
+    const processedUpdates = { ...updates };
+    const sensitiveFields = getSensitiveFields(existingIntegration.channelId);
+
+    for (const field of sensitiveFields) {
+      const fieldValue = updates.config?.[field.key];
+      // Si el campo viene como un objeto enmascarado, no actualizarlo (mantener valor existente)
+      if (fieldValue && typeof fieldValue === 'object' && fieldValue._masked) {
+        // Eliminar este campo de los updates para no sobrescribirlo
+        if (processedUpdates.config) {
+          delete processedUpdates.config[field.key];
+        }
+      } else if (typeof fieldValue === 'string' && (fieldValue.includes('...') || fieldValue === '***')) {
+        // El valor es un string enmascarado (desde la UI): mantener el valor original
+        if (processedUpdates.config) {
+          delete processedUpdates.config[field.key];
+        }
+      }
+    }
+
     const integration = await Integration.findByIdAndUpdate(
       _id,
       {
-        ...updates,
+        ...processedUpdates,
         updatedAt: new Date()
       },
       { new: true }
     );
-
-    if (!integration) {
-      return res.status(404).json({ error: 'Integration not found' });
-    }
 
     console.log(`[Integrations] ${integration.channelId} actualizado`);
 
@@ -515,9 +537,12 @@ function maskSensitiveConfig(channelId, config) {
     const field = channelInfo?.configFields?.find(f => f.key === key);
     if (field?.type === 'password' && value) {
       const strValue = String(value);
-      masked[key] = strValue.length > 10
-        ? strValue.substring(0, 8) + '...'
-        : '***';
+      // Devolver un objeto con el valor enmascarado y un flag indicando que tiene valor
+      masked[key] = {
+        _masked: true,
+        _hasValue: true,
+        value: strValue.length > 10 ? strValue.substring(0, 8) + '...' : '***'
+      };
     } else {
       masked[key] = value;
     }
@@ -647,14 +672,25 @@ function buildChannelConfig(channelId, config, accountId) {
         channelConfig.webhookPath = `/api/integrations/telegram/webhook/${accountId}`;
       }
       // Configuraciones por defecto para Telegram
-      channelConfig.dmPolicy = 'open';
-      channelConfig.groupPolicy = 'open';
-      // Si hay usuarios permitidos específicos, usarlos; si no, permitir cualquiera
+      // Si hay usuarios permitidos específicos, usar modo restringido; si no, modo abierto
       const allowedUsers = config.allowedUsers;
       if (allowedUsers && typeof allowedUsers === 'string' && allowedUsers.trim()) {
         const userIds = allowedUsers.split(',').map(id => `telegram:${id.trim()}`).filter(id => id !== 'telegram:');
-        channelConfig.allowFrom = userIds.length > 0 ? userIds : ['*'];
+        if (userIds.length > 0) {
+          // Modo allowlist: solo usuarios específicos
+          channelConfig.dmPolicy = 'allowlist';
+          channelConfig.groupPolicy = 'allowlist';
+          channelConfig.allowFrom = userIds;
+        } else {
+          // Modo abierto: cualquiera
+          channelConfig.dmPolicy = 'open';
+          channelConfig.groupPolicy = 'open';
+          channelConfig.allowFrom = ['*'];
+        }
       } else {
+        // Modo abierto: cualquiera
+        channelConfig.dmPolicy = 'open';
+        channelConfig.groupPolicy = 'open';
         channelConfig.allowFrom = ['*'];
       }
       break;

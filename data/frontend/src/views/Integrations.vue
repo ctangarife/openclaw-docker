@@ -66,14 +66,20 @@
               {{ field.label }}
               <span v-if="field.required" class="required">*</span>
             </label>
-            <input
-              v-if="field.type === 'text' || field.type === 'password'"
-              v-model="form.config[field.key]"
-              :type="field.type"
-              :placeholder="field.hint || ''"
-              class="input"
-              :required="field.required"
-            />
+            <div class="input-wrapper">
+              <input
+                v-if="field.type === 'text' || field.type === 'password'"
+                v-model="form.config[field.key]"
+                :type="field.type"
+                :placeholder="getPlaceholder(field)"
+                class="input"
+                :class="{ 'masked-value': isValueMasked(form.config[field.key]) }"
+                :required="field.required && !isValueMasked(form.config[field.key])"
+              />
+              <span v-if="isValueMasked(form.config[field.key])" class="masked-badge">
+                Valor guardado (deja vacío para mantener)
+              </span>
+            </div>
             <small v-if="field.hint">{{ field.hint }}</small>
           </div>
 
@@ -141,7 +147,9 @@
             </div>
             <div v-if="Object.keys(integration.config).length" class="item-config">
               <span v-for="(value, key) in integration.config" :key="key" class="config-item">
-                <strong>{{ key }}:</strong> {{ value }}
+                <strong>{{ key }}:</strong>
+                <span v-if="typeof value === 'object' && value._masked">{{ value.value || '***' }}</span>
+                <span v-else>{{ value }}</span>
               </span>
             </div>
           </div>
@@ -204,6 +212,7 @@ const selectedChannel = ref<AvailableChannel | null>(null);
 const testResult = ref<any>(null);
 
 const form = ref({
+  _id: '',
   channelId: '',
   accountId: 'default',
   enabled: true,
@@ -234,24 +243,47 @@ function isChannelConfigured(channelId: string): boolean {
   return configuredIntegrations.value.some(i => i.channelId === channelId);
 }
 
+function isValueMasked(value: string): boolean {
+  return value && (value.includes('...') || value === '***');
+}
+
+function getPlaceholder(field: ChannelField): string {
+  const currentValue = form.value.config[field.key];
+  if (isValueMasked(currentValue)) {
+    return 'El valor actual está oculto por seguridad';
+  }
+  return field.hint || '';
+}
+
 function selectChannel(channel: AvailableChannel) {
   selectedChannel.value = channel;
   const existing = configuredIntegrations.value.find(i => i.channelId === channel.id);
 
   if (existing) {
-    // Limpiar valores enmascarados (que contienen '...')
+    // Procesar configuración existente
     const cleanConfig: Record<string, string> = {};
+
+    // Primero copiar todos los campos de existing.config
+    for (const [key, value] of Object.entries(existing.config)) {
+      if (value && typeof value === 'object' && value._masked) {
+        // Campo enmascarado: dejar el valor enmascarado para mostrar
+        cleanConfig[key] = value.value || '***';
+      } else if (typeof value === 'string') {
+        cleanConfig[key] = value;
+      } else if (value !== null && value !== undefined) {
+        cleanConfig[key] = String(value);
+      }
+    }
+
+    // Asegurar que todos los campos del canal estén en cleanConfig
     for (const field of channel.configFields) {
-      const value = existing.config[field.key];
-      // Si el valor está enmascarado (contiene '...'), dejarlo vacío
-      if (value && !value.includes('...')) {
-        cleanConfig[field.key] = value;
-      } else {
+      if (!(field.key in cleanConfig)) {
         cleanConfig[field.key] = '';
       }
     }
 
     form.value = {
+      _id: existing._id,
       channelId: existing.channelId,
       accountId: existing.accountId,
       enabled: existing.enabled,
@@ -259,6 +291,7 @@ function selectChannel(channel: AvailableChannel) {
     };
   } else {
     form.value = {
+      _id: '',
       channelId: channel.id,
       accountId: 'default',
       enabled: true,
@@ -308,8 +341,12 @@ async function saveIntegration() {
   success.value = "";
 
   try {
-    const r = await fetch('/api/integrations', {
-      method: 'POST',
+    const isEdit = form.value._id !== '';
+    const url = isEdit ? `/api/integrations/${form.value._id}` : '/api/integrations';
+    const method = isEdit ? 'PATCH' : 'POST';
+
+    const r = await fetch(url, {
+      method,
       headers: {
         ...api.getHeaders(),
         'Content-Type': 'application/json'
@@ -640,6 +677,32 @@ onMounted(() => {
 .form-group {
   display: grid;
   gap: 0.5rem;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input-wrapper input {
+  flex: 1;
+}
+
+.masked-value {
+  padding-right: 200px;
+  background: #1e293b;
+  color: #fbbf24;
+}
+
+.masked-badge {
+  position: absolute;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  color: #fbbf24;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .form-group label {
