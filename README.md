@@ -240,14 +240,6 @@ docker compose restart openclaw-gateway
 
 ---
 
-## Documentación Adicional
-
-- [doc/PRIMERA-ITERACION.md](doc/PRIMERA-ITERACION.md) - Detalles de Mongo, config-service, UI
-- [doc/OPENCLAW-DOCKER.md](doc/OPENCLAW-DOCKER.md) - Comandos OpenClaw (onboard, canales, dashboard)
-- [CLAUDE.md](CLAUDE.md) - Guía completa para desarrolladores
-
----
-
 ## Seguridad
 
 - Todos los tokens se cifran con **AES-256-GCM** antes de almacenarse
