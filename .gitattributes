@@ -1,0 +1,2 @@
+# Scripts deben tener LF para que funcionen en contenedores Linux (evitar CRLF en Windows)
+*.sh text eol=lf

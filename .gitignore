@@ -1,0 +1,13 @@
+.env
+node_modules/
+data/static/
+dist/
+*.log
+.DS_Store
+
+# Archivos generados dinámicamente desde MongoDB (no deben estar en el repositorio)
+data/molbot-workspace/agents/
+data/molbot-workspace/openclaw.json
+**/.git
+doc/*
+data/molbot-workspace/workspace/

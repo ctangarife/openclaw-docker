@@ -1,0 +1,27 @@
+#!/usr/bin/expect -f
+# Automatiza openclaw onboard con valores por defecto (fake TTY).
+set timeout 15
+set send_slow {1 .1}
+spawn openclaw onboard
+
+# Preguntas típicas: elegir opción por defecto, skip, o Enter
+expect {
+    -re {(\[.*\].*:|\?|>|Select|Choose|default|Continue|Skip|y/n|Y/n)} {
+        send "\r"
+        exp_continue
+    }
+    "yes/no" {
+        send "no\r"
+        exp_continue
+    }
+    "add" {
+        send "no\r"
+        exp_continue
+    }
+    timeout {
+        # Sin coincidencia en 15s; enviar Enter por si acaso
+        send "\r"
+        exp_continue
+    }
+    eof
+}

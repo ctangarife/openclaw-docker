@@ -1,0 +1,43 @@
+{
+  "110f1dae-7db0-42a3-ba47-4df0a3d98f1d": {
+    "requestId": "110f1dae-7db0-42a3-ba47-4df0a3d98f1d",
+    "deviceId": "2694f8a86aaf95eb774870463128885a0bfccf9dfea70835f573fa94a64b5eca",
+    "publicKey": "fButOuLW5_CQ0w0YP22D7bHRy0HQ0yK1nR3l7T6FJY8",
+    "platform": "Win32",
+    "clientId": "openclaw-control-ui",
+    "clientMode": "webchat",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.approvals",
+      "operator.pairing"
+    ],
+    "silent": false,
+    "isRepair": false,
+    "ts": 1770321735871
+  },
+  "f64bc9cc-245f-4ef8-b0fa-7eebbde7ba2a": {
+    "requestId": "f64bc9cc-245f-4ef8-b0fa-7eebbde7ba2a",
+    "deviceId": "d787955335b544a5baf87c30e1aac76ae07d463f7fb5c4204eada941bad72818",
+    "publicKey": "Bk6h7yeCmwMe9LsvPSbs1sFhzTm5xnKAazXZKSawAcc",
+    "platform": "linux",
+    "clientId": "cli",
+    "clientMode": "cli",
+    "role": "operator",
+    "roles": [
+      "operator"
+    ],
+    "scopes": [
+      "operator.admin",
+      "operator.approvals",
+      "operator.pairing"
+    ],
+    "remoteIp": "172.24.0.6",
+    "silent": false,
+    "isRepair": false,
+    "ts": 1770321754172
+  }
+}

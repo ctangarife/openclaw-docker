@@ -1,0 +1,208 @@
+# Molbot - Primera iteración: MongoDB, config-service, UI, Nginx
+# .env solo: MONGO_URI, ENCRYPTION_KEY, UI_SECRET
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: molbot-mongodb
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      # La imagen solo crea el usuario root cuando /data/db está VACÍO. Si ves "UserNotFound: root",
+      # el volumen tiene datos viejos: docker compose down -v && docker compose up -d
+      - mongodb_data:/data/db
+      - ./db/init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
+      - ./db/healthcheck.sh:/healthcheck.sh:ro
+    ports:
+      - "27017:27017"
+    networks:
+      molbot_net:
+        aliases:
+          - mongodb
+    healthcheck:
+      # tr quita \r por si healthcheck.sh tiene CRLF (Windows)
+      test: ["CMD", "sh", "-c", "tr -d '\\r' < /healthcheck.sh | sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # Primera arrancada con volumen vacío: el init de la imagen puede tardar ~1 min
+      start_period: 120s
+
+  config-service:
+    build:
+      context: ./data/config-service
+      dockerfile: ../../build/config-service/Dockerfile
+    container_name: molbot-config-service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 3001
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      # Redirección /openclaw-dashboard → mismo puerto 80 (Nginx). Ajustar si accedes por IP u otro host.
+      OPENCLAW_DASHBOARD_PUBLIC_URL: ${OPENCLAW_DASHBOARD_PUBLIC_URL:-http://localhost}
+      # Directorio del agente para sincronización de API keys (ruta absoluta dentro del contenedor)
+      OPENCLAW_AGENT_DIR: /home/node/.openclaw/agents/main/agent
+      # Nombre del contenedor a reiniciar después de sincronizar
+      OPENCLAW_GATEWAY_CONTAINER: molbot-openclaw-gateway
+    volumes:
+      # Named volume compartido para sincronización multiplataforma
+      - openclaw_config:/home/node/.openclaw:rw
+      # Socket de Docker para poder reiniciar contenedores
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "3001:3001"
+    networks:
+      molbot_net:
+        aliases:
+          - config-service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  molbot-ui:
+    build:
+      context: ./data/frontend
+      dockerfile: ../../build/ui/Dockerfile
+    container_name: molbot-ui
+    volumes:
+      - ./data/frontend:/app
+      - ./data/static:/app/dist
+    env_file: .env
+    # Build con base /admin/ y salida en dist/admin/ para servir bajo /admin
+    command: sh -c "cd /app && npm install && npm run build && mkdir -p dist/admin && mv dist/index.html dist/admin/ && mv dist/assets dist/admin/"
+    networks:
+      molbot_net:
+        aliases:
+          - molbot-ui
+    restart: "no"
+
+  # OpenClaw Gateway (imagen construida desde repo oficial en build/openclaw/Dockerfile)
+  openclaw-gateway:
+    build:
+      context: .
+      dockerfile: build/openclaw/Dockerfile
+    image: molbot-openclaw:latest
+    container_name: molbot-openclaw-gateway
+    restart: unless-stopped
+    # Ejecutar como root temporalmente para poder corregir permisos del volumen
+    user: "0"
+    env_file: .env
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-molbot-dev-token-cambiar-en-produccion}
+      # allowInsecureAuth: solo activar en desarrollo. En producción, dejar false o no definir.
+      OPENCLAW_ALLOW_INSECURE_AUTH: ${OPENCLAW_ALLOW_INSECURE_AUTH:-true}
+      # Variables para sincronización de API keys desde MongoDB
+      MONGO_URI: ${MONGO_URI}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # CRÍTICO: Forzar ruta absoluta del contenedor para que coincida con el named volume
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+    volumes:
+      # Named volume compartido con config-service para sincronización multiplataforma
+      - openclaw_config:/home/node/.openclaw
+      # Workspace sigue siendo bind mount para acceso directo desde el host
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/molbot-workspace/workspace}:/home/node/.openclaw/workspace
+    # Puertos NO expuestos al host: solo accesible desde Nginx (red Docker).
+    # Nginx hace proxy a openclaw-gateway:18789 dentro de la red molbot_net.
+    # Si necesitas acceso directo al gateway, descomenta las líneas de ports.
+    # ports:
+    #   - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+    #   - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    command:
+      - node
+      - dist/index.js
+      - gateway
+      - --bind
+      - "${OPENCLAW_GATEWAY_BIND:-lan}"
+      - --port
+      - "18789"
+      - --allow-unconfigured
+    networks:
+      molbot_net:
+        aliases:
+          - molbot
+          - gateway
+    depends_on:
+      config-service:
+        condition: service_healthy
+
+  # CLI para onboard, canales, dashboard: docker compose --profile tools run --rm openclaw-cli <cmd>
+  # user: "0" evita EACCES en identity/device.json con volúmenes montados en Windows
+  openclaw-cli:
+    build:
+      context: .
+      dockerfile: build/openclaw/Dockerfile
+    image: molbot-openclaw:latest
+    user: "0"
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-molbot-dev-token-cambiar-en-produccion}
+      BROWSER: echo
+    volumes:
+      # Named volume compartido con config-service para sincronización multiplataforma
+      - openclaw_config:/home/node/.openclaw
+      # Workspace sigue siendo bind mount para acceso directo desde el host
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/molbot-workspace/workspace}:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+    networks:
+      molbot_net:
+        aliases:
+          - molbot
+    profiles:
+      - tools
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: molbot-nginx
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - ./server/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./server/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./data/static:/usr/share/nginx/html:ro
+    depends_on:
+      molbot-ui:
+        condition: service_completed_successfully
+      config-service:
+        condition: service_healthy
+    networks:
+      molbot_net:
+        aliases:
+          - nginx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/nginx-health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  molbot_net:
+    driver: bridge
+    name: molbot_net
+
+volumes:
+  mongodb_data:
+    name: molbot_mongodb_data
+    driver: local
+  openclaw_config:
+    name: molbot_openclaw_config
+    driver: local

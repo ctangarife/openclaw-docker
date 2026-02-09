@@ -1,0 +1,34 @@
+---
+description: Estructura de carpetas e infraestructura Docker que deben seguir todos los proyectos
+alwaysApply: true
+---
+
+# Infraestructura estándar de proyectos
+
+Todos los proyectos deben seguir esta estructura de carpetas para dockerización y organización:
+
+```
+<raíz-proyecto>/
+├── build/           # Definiciones de build por servicio (Dockerfiles, configs de imagen)
+│   ├── <servicio-1>/
+│   ├── <servicio-2>/
+│   └── ...
+├── data/            # Código de aplicaciones y artefactos montados en contenedores
+│   ├── backend-*/
+│   ├── frontend/
+│   └── ...
+├── db/               # Scripts de inicialización de bases de datos (init SQL, Mongo, etc.)
+├── server/           # Configuración del reverse proxy / servidor (nginx, etc.)
+│   └── nginx/
+│       ├── conf.d/
+│       └── includes/
+└── doc/              # Documentación del proyecto
+```
+
+- **build/** — Un subdirectorio por servicio que tenga Dockerfile o config propia; el resto usa imágenes oficiales.
+- **data/** — Código vivo y salidas de build que se montan en contenedores (no empaquetado en la imagen).
+- **db/** — Scripts de init montados en contenedores de BD (ej. `init.sql`, `init-mongo.js`).
+- **server/** — Configuración del gateway (nginx: `nginx.conf`, `conf.d/`, `includes/`).
+- **doc/** — Documentación (guías, arquitectura, APIs).
+
+El `docker-compose.yml` y `env.template` van en la raíz; los volúmenes y redes siguen esta estructura.
