@@ -59,6 +59,24 @@ export async function syncCredentials() {
   return r.json();
 }
 
+export async function getAvailableProviders() {
+  const r = await fetch(`${API_BASE}/api/credentials/available-providers`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<Array<{
+    value: string;
+    label: string;
+    group: string;
+    description: string;
+    defaultName: string;
+    tokenLabel?: string;
+    tokenPlaceholder?: string;
+    helpUrl?: string;
+    helpText?: string;
+    requiresMetadata?: boolean;
+    metadataFields?: Array<{ name: string; label: string; placeholder: string }>;
+  }>>;
+}
+
 export async function getConfig() {
   const r = await fetch(`${API_BASE}/api/config`, { headers: getHeaders() });
   if (!r.ok) throw new Error(await r.text());

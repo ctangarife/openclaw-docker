@@ -4,8 +4,8 @@
       <h1>Credenciales API</h1>
       <p class="subtitle">Gestiona las API keys de los proveedores de modelos. Se sincronizan automáticamente con OpenClaw.</p>
       <div class="header-actions">
-        <button 
-          class="btn-secondary" 
+        <button
+          class="btn-secondary"
           @click="syncNow"
           :disabled="syncing"
           title="Sincronizar manualmente con OpenClaw"
@@ -27,42 +27,31 @@
           <h2>{{ editingId ? 'Editar' : 'Nueva' }} credencial</h2>
           <button class="btn-close" @click="cancelForm">×</button>
         </div>
-        
+
         <form @submit.prevent="saveCredential" class="form">
           <!-- Selector de proveedor -->
           <div class="form-group">
             <label>Proveedor *</label>
-            <select 
-              v-model="form.provider" 
+            <select
+              v-model="form.provider"
               @change="onProviderChange"
-              :disabled="!!editingId"
+              :disabled="!!editingId || loadingProviders"
               required
               class="select-provider"
             >
               <option value="">Selecciona un proveedor</option>
-              <optgroup label="Anthropic">
-                <option value="anthropic">Anthropic API Key</option>
-                <option value="anthropic-oauth">Anthropic OAuth (Claude Code CLI)</option>
-                <option value="anthropic-token">Anthropic Token (setup-token)</option>
-              </optgroup>
-              <optgroup label="OpenAI">
-                <option value="openai">OpenAI API Key</option>
-                <option value="openai-codex-cli">OpenAI Code Subscription (Codex CLI)</option>
-                <option value="openai-codex-oauth">OpenAI Code Subscription (OAuth)</option>
-              </optgroup>
-              <optgroup label="Otros proveedores">
-                <option value="minimax">MiniMax M2.1</option>
-                <option value="moonshot">Moonshot AI (Kimi)</option>
-                <option value="kimi-coding">Kimi Coding</option>
-                <option value="synthetic">Synthetic (Anthropic-compatible)</option>
-                <option value="opencode-zen">OpenCode Zen</option>
-              </optgroup>
-              <optgroup label="Gateways">
-                <option value="vercel-ai-gateway">Vercel AI Gateway</option>
-                <option value="cloudflare-ai-gateway">Cloudflare AI Gateway</option>
-              </optgroup>
-              <optgroup label="Genérico">
-                <option value="generic">API Key (genérico)</option>
+              <optgroup
+                v-for="group in groupedProviders"
+                :key="group.name"
+                :label="group.name"
+              >
+                <option
+                  v-for="provider in group.providers"
+                  :key="provider.value"
+                  :value="provider.value"
+                >
+                  {{ provider.label }}
+                </option>
               </optgroup>
             </select>
             <p v-if="selectedProviderInfo" class="provider-description">
@@ -73,8 +62,8 @@
           <!-- Nombre -->
           <div class="form-group">
             <label>Nombre (opcional)</label>
-            <input 
-              v-model="form.name" 
+            <input
+              v-model="form.name"
               :placeholder="form.name || selectedProviderInfo?.defaultName || 'Nombre descriptivo'"
               class="input"
             />
@@ -120,9 +109,9 @@
           <template v-else-if="form.provider">
             <div class="form-group">
               <label>{{ selectedProviderInfo?.tokenLabel || 'Token / API Key' }} *</label>
-              <input 
-                v-model="form.token" 
-                type="password" 
+              <input
+                v-model="form.token"
+                type="password"
                 :placeholder="selectedProviderInfo?.tokenPlaceholder || 'Ingresa tu API key'"
                 :required="!editingId"
                 class="input"
@@ -145,9 +134,9 @@
 
     <!-- Lista de credenciales -->
     <div v-if="list.length" class="credentials-list">
-      <div 
-        v-for="c in list" 
-        :key="c._id" 
+      <div
+        v-for="c in list"
+        :key="c._id"
         class="credential-card"
         :class="{ disabled: !c.enabled }"
       >
@@ -169,8 +158,8 @@
         </div>
         <div class="credential-actions">
           <label class="toggle-switch">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               :checked="c.enabled"
               @change="toggle(c)"
             />
@@ -213,21 +202,29 @@ interface Credential {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  metadata?: Record<string, any>;
 }
 
 interface ProviderInfo {
+  value: string;
+  label: string;
+  group: string;
   description: string;
   defaultName: string;
   tokenLabel?: string;
   tokenPlaceholder?: string;
   helpUrl?: string;
   helpText?: string;
+  requiresMetadata?: boolean;
+  metadataFields?: Array<{ name: string; label: string; placeholder: string }>;
 }
 
 const list = ref<Credential[]>([]);
+const availableProviders = ref<ProviderInfo[]>([]);
 const error = ref("");
 const syncMessage = ref("");
 const syncing = ref(false);
+const loadingProviders = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
 const form = ref({
@@ -238,101 +235,57 @@ const form = ref({
   cloudflareGatewayId: "",
 });
 
-const providers: Record<string, ProviderInfo> = {
-  "anthropic": {
-    description: "API key de Anthropic para Claude. Recomendado para uso general.",
-    defaultName: "Anthropic API Key",
-    tokenLabel: "ANTHROPIC_API_KEY",
-    tokenPlaceholder: "sk-ant-...",
-  },
-  "anthropic-oauth": {
-    description: "OAuth de Anthropic (Claude Code CLI). Reutiliza credenciales del sistema.",
-    defaultName: "Anthropic OAuth",
-  },
-  "anthropic-token": {
-    description: "Token de setup de Anthropic. Genera con 'claude setup-token'.",
-    defaultName: "Anthropic Setup Token",
-    tokenPlaceholder: "Pega el token generado",
-  },
-  "openai": {
-    description: "API key de OpenAI para GPT-4, GPT-3.5, etc.",
-    defaultName: "OpenAI API Key",
-    tokenLabel: "OPENAI_API_KEY",
-    tokenPlaceholder: "sk-...",
-  },
-  "openai-codex-cli": {
-    description: "OpenAI Code Subscription usando Codex CLI. Reutiliza credenciales existentes.",
-    defaultName: "OpenAI Codex CLI",
-  },
-  "openai-codex-oauth": {
-    description: "OpenAI Code Subscription vía OAuth. Flujo de navegador.",
-    defaultName: "OpenAI Codex OAuth",
-  },
-  "minimax": {
-    description: "MiniMax M2.1. Configuración automática.",
-    defaultName: "MiniMax M2.1",
-    helpUrl: "https://docs.openclaw.ai/providers/minimax",
-  },
-  "moonshot": {
-    description: "Moonshot AI (Kimi K2). Configuración automática.",
-    defaultName: "Moonshot AI",
-    helpUrl: "https://docs.openclaw.ai/providers/moonshot",
-  },
-  "kimi-coding": {
-    description: "Kimi Coding. Configuración automática.",
-    defaultName: "Kimi Coding",
-    helpUrl: "https://docs.openclaw.ai/providers/moonshot",
-  },
-  "synthetic": {
-    description: "Synthetic (compatible con Anthropic).",
-    defaultName: "Synthetic API",
-    tokenLabel: "SYNTHETIC_API_KEY",
-    helpUrl: "https://docs.openclaw.ai/providers/synthetic",
-  },
-  "opencode-zen": {
-    description: "OpenCode Zen API.",
-    defaultName: "OpenCode Zen",
-    tokenLabel: "OPENCODE_API_KEY",
-    helpUrl: "https://opencode.ai/auth",
-  },
-  "vercel-ai-gateway": {
-    description: "Vercel AI Gateway para enrutar requests a múltiples proveedores.",
-    defaultName: "Vercel AI Gateway",
-    tokenLabel: "AI_GATEWAY_API_KEY",
-    helpUrl: "https://docs.openclaw.ai/providers/vercel-ai-gateway",
-  },
-  "cloudflare-ai-gateway": {
-    description: "Cloudflare AI Gateway. Requiere Account ID, Gateway ID y API Key.",
-    defaultName: "Cloudflare AI Gateway",
-    helpUrl: "https://docs.openclaw.ai/providers/cloudflare-ai-gateway",
-  },
-  "generic": {
-    description: "API key genérica para cualquier proveedor no listado.",
-    defaultName: "API Key Genérica",
-    tokenPlaceholder: "Ingresa tu API key",
-  },
-};
+// Agrupar providers por grupo
+const groupedProviders = computed(() => {
+  const groups: Record<string, { name: string; providers: ProviderInfo[] }> = {};
+
+  for (const provider of availableProviders.value) {
+    if (!groups[provider.group]) {
+      groups[provider.group] = {
+        name: provider.group,
+        providers: []
+      };
+    }
+    groups[provider.group].providers.push(provider);
+  }
+
+  // Ordenar grupos y providers
+  return Object.values(groups).sort((a, b) => {
+    // Orden personalizado de grupos
+    const groupOrder = ['Anthropic', 'OpenAI', 'Otros proveedores', 'Gateways', 'Genérico'];
+    const aIndex = groupOrder.indexOf(a.name);
+    const bIndex = groupOrder.indexOf(b.name);
+
+    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+    if (aIndex !== -1) return -1;
+    if (bIndex !== -1) return 1;
+
+    return a.name.localeCompare(b.name);
+  });
+});
 
 const selectedProviderInfo = computed(() => {
-  return form.value.provider ? providers[form.value.provider] : null;
+  return form.value.provider ? availableProviders.value.find(p => p.value === form.value.provider) : null;
 });
 
 function getProviderDisplayName(provider: string): string {
-  return providers[provider]?.defaultName || provider;
+  const providerInfo = availableProviders.value.find(p => p.value === provider);
+  return providerInfo?.defaultName || provider;
 }
 
 function getProviderClass(provider: string): string {
   if (provider.startsWith("anthropic")) return "badge-anthropic";
   if (provider.startsWith("openai")) return "badge-openai";
   if (provider.includes("gateway")) return "badge-gateway";
+  if (provider === "zai") return "badge-zai";
   return "badge-default";
 }
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
-  return date.toLocaleDateString("es-ES", { 
-    year: "numeric", 
-    month: "short", 
+  return date.toLocaleDateString("es-ES", {
+    year: "numeric",
+    month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit"
@@ -342,6 +295,18 @@ function formatDate(dateStr: string): string {
 function onProviderChange() {
   if (!editingId.value && selectedProviderInfo.value) {
     form.value.name = selectedProviderInfo.value.defaultName;
+  }
+}
+
+async function loadProviders() {
+  loadingProviders.value = true;
+  try {
+    availableProviders.value = await api.getAvailableProviders();
+  } catch (e) {
+    console.error('Error cargando providers:', e);
+    // No mostrar error al usuario, usar fallback
+  } finally {
+    loadingProviders.value = false;
   }
 }
 
@@ -366,7 +331,7 @@ function cancelForm() {
   };
 }
 
-function edit(c: Credential & { metadata?: Record<string, any> }) {
+function edit(c: Credential) {
   editingId.value = c._id;
   form.value = {
     provider: c.provider,
@@ -388,16 +353,16 @@ async function saveCredential() {
     }
 
     if (editingId.value) {
-      const payload: { name?: string; token?: string; metadata?: Record<string, any> } = { 
-        name: form.value.name 
+      const payload: { name?: string; token?: string; metadata?: Record<string, any> } = {
+        name: form.value.name
       };
       if (form.value.token) payload.token = form.value.token;
       if (Object.keys(metadata).length > 0) payload.metadata = metadata;
       await api.updateCredential(editingId.value, payload);
     } else {
       await api.createCredential(
-        form.value.provider, 
-        form.value.name, 
+        form.value.provider,
+        form.value.name,
         form.value.token,
         Object.keys(metadata).length > 0 ? metadata : undefined
       );
@@ -435,7 +400,7 @@ async function syncNow() {
   try {
     const result = await api.syncCredentials();
     const profileCount = result.profiles?.length || 0;
-    
+
     // Verificar si el gateway se reinició
     if (result.gatewayRestarted) {
       syncMessage.value = `✅ Sincronización exitosa: ${profileCount} credencial(es) sincronizada(s). Gateway reiniciado automáticamente.`;
@@ -444,12 +409,12 @@ async function syncNow() {
     } else {
       syncMessage.value = `✅ Sincronización exitosa: ${profileCount} credencial(es) sincronizada(s) con OpenClaw`;
     }
-    
+
     // Mostrar nota si existe
     if (result.note) {
       console.log('Nota del servidor:', result.note);
     }
-    
+
     // Ocultar mensaje después de 5 segundos
     setTimeout(() => {
       syncMessage.value = "";
@@ -461,7 +426,10 @@ async function syncNow() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  loadProviders();
+  load();
+});
 </script>
 
 <style scoped>
@@ -726,6 +694,11 @@ onMounted(load);
 .badge-gateway {
   background: #065f46;
   color: #a7f3d0;
+}
+
+.badge-zai {
+  background: #1e40af;
+  color: #93c5fd;
 }
 
 .credential-meta {

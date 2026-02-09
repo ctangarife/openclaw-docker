@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const { encrypt, decrypt } = require("../lib/encrypt");
 const { syncAuthProfiles } = require("../lib/sync-openclaw-auth");
 const { restartGateway, checkDockerAvailable } = require("../lib/docker-utils");
+const { NATIVE_PROVIDERS, NATIVE_PROVIDER_MODEL_LIST, PROVIDER_TEMPLATES, getDefaultModel } = require("../lib/provider-templates");
 
 // Función para invalidar caché de modelos (importada dinámicamente para evitar dependencia circular)
 function clearModelsCache() {
@@ -32,6 +33,225 @@ const schema = new mongoose.Schema(
   { timestamps: true, collection: "api_credentials" }
 );
 const Credential = mongoose.models.Credential || mongoose.model("Credential", schema);
+
+/**
+ * GET /api/credentials/available-providers
+ * Retorna la lista de providers disponibles con su información
+ * Incluye providers nativos y personalizados desde provider-templates.js
+ */
+router.get("/available-providers", (req, res) => {
+  try {
+    const providers = [];
+
+    // Providers nativos (detectados automáticamente por OpenClaw)
+    const nativeProviders = [
+      {
+        value: "anthropic",
+        label: "Anthropic API Key",
+        group: "Anthropic",
+        description: "API key de Anthropic para Claude. Recomendado para uso general.",
+        defaultName: "Anthropic API Key",
+        tokenLabel: "ANTHROPIC_API_KEY",
+        tokenPlaceholder: "sk-ant-...",
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "anthropic-oauth",
+        label: "Anthropic OAuth (Claude Code CLI)",
+        group: "Anthropic",
+        description: "OAuth de Anthropic (Claude Code CLI). Reutiliza credenciales del sistema.",
+        defaultName: "Anthropic OAuth",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "anthropic-token",
+        label: "Anthropic Token (setup-token)",
+        group: "Anthropic",
+        description: "Token de setup de Anthropic. Genera con 'claude setup-token'.",
+        defaultName: "Anthropic Setup Token",
+        tokenLabel: null,
+        tokenPlaceholder: "Pega el token generado",
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "openai",
+        label: "OpenAI API Key",
+        group: "OpenAI",
+        description: "API key de OpenAI para GPT-4, GPT-3.5, etc.",
+        defaultName: "OpenAI API Key",
+        tokenLabel: "OPENAI_API_KEY",
+        tokenPlaceholder: "sk-...",
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "openai-codex-cli",
+        label: "OpenAI Code Subscription (Codex CLI)",
+        group: "OpenAI",
+        description: "OpenAI Code Subscription usando Codex CLI. Reutiliza credenciales existentes.",
+        defaultName: "OpenAI Codex CLI",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "openai-codex-oauth",
+        label: "OpenAI Code Subscription (OAuth)",
+        group: "OpenAI",
+        description: "OpenAI Code Subscription vía OAuth. Flujo de navegador.",
+        defaultName: "OpenAI Codex OAuth",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: null,
+        helpText: null
+      },
+      {
+        value: "zai",
+        label: "Z.AI (GLM-4.6)",
+        group: "Otros proveedores",
+        description: "Z.AI (Zhipu AI) GLM-4.6. Modelo popular en la comunidad.",
+        defaultName: "Z.AI GLM-4.6",
+        tokenLabel: "ZAI_API_KEY",
+        tokenPlaceholder: "Ingresa tu API key de Z.AI",
+        helpUrl: "https://docs.z.ai/api-reference/introduction",
+        helpText: "Documentación de Z.AI"
+      },
+      {
+        value: "minimax",
+        label: "MiniMax M2.1",
+        group: "Otros proveedores",
+        description: "MiniMax M2.1. Configuración automática.",
+        defaultName: "MiniMax M2.1",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/minimax",
+        helpText: null
+      },
+      {
+        value: "moonshot",
+        label: "Moonshot AI (Kimi)",
+        group: "Otros proveedores",
+        description: "Moonshot AI (Kimi K2). Configuración automática.",
+        defaultName: "Moonshot AI",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/moonshot",
+        helpText: null
+      },
+      {
+        value: "kimi-coding",
+        label: "Kimi Coding",
+        group: "Otros proveedores",
+        description: "Kimi Coding. Configuración automática.",
+        defaultName: "Kimi Coding",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/moonshot",
+        helpText: null
+      },
+      {
+        value: "synthetic",
+        label: "Synthetic (Anthropic-compatible)",
+        group: "Otros proveedores",
+        description: "Synthetic (compatible con Anthropic).",
+        defaultName: "Synthetic API",
+        tokenLabel: "SYNTHETIC_API_KEY",
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/synthetic",
+        helpText: null
+      },
+      {
+        value: "opencode-zen",
+        label: "OpenCode Zen",
+        group: "Otros proveedores",
+        description: "OpenCode Zen API.",
+        defaultName: "OpenCode Zen",
+        tokenLabel: "OPENCODE_API_KEY",
+        tokenPlaceholder: null,
+        helpUrl: "https://opencode.ai/auth",
+        helpText: null
+      },
+      {
+        value: "vercel-ai-gateway",
+        label: "Vercel AI Gateway",
+        group: "Gateways",
+        description: "Vercel AI Gateway para enrutar requests a múltiples proveedores.",
+        defaultName: "Vercel AI Gateway",
+        tokenLabel: "AI_GATEWAY_API_KEY",
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/vercel-ai-gateway",
+        helpText: null
+      },
+      {
+        value: "cloudflare-ai-gateway",
+        label: "Cloudflare AI Gateway",
+        group: "Gateways",
+        description: "Cloudflare AI Gateway. Requiere Account ID, Gateway ID y API Key.",
+        defaultName: "Cloudflare AI Gateway",
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: "https://docs.openclaw.ai/providers/cloudflare-ai-gateway",
+        helpText: null,
+        requiresMetadata: true,
+        metadataFields: [
+          { name: "accountId", label: "Account ID", placeholder: "Cloudflare Account ID" },
+          { name: "gatewayId", label: "Gateway ID", placeholder: "Cloudflare Gateway ID" }
+        ]
+      },
+      {
+        value: "generic",
+        label: "API Key (genérico)",
+        group: "Genérico",
+        description: "API key genérica para cualquier proveedor no listado.",
+        defaultName: "API Key Genérica",
+        tokenLabel: null,
+        tokenPlaceholder: "Ingresa tu API key",
+        helpUrl: null,
+        helpText: null
+      }
+    ];
+
+    // Providers personalizados desde templates (dinámicos)
+    for (const [providerId, template] of Object.entries(PROVIDER_TEMPLATES)) {
+      // Skip si ya está en la lista nativa
+      if (nativeProviders.find(p => p.value === providerId)) continue;
+
+      providers.push({
+        value: providerId,
+        label: providerId.charAt(0).toUpperCase() + providerId.slice(1),
+        group: "Otros proveedores",
+        description: `${providerId} - Configuración personalizada.`,
+        defaultName: providerId.charAt(0).toUpperCase() + providerId.slice(1),
+        tokenLabel: null,
+        tokenPlaceholder: null,
+        helpUrl: null,
+        helpText: null
+      });
+    }
+
+    // Combinar providers nativos y personalizados
+    providers.push(...nativeProviders);
+
+    // Ordenar por grupo y luego por label
+    providers.sort((a, b) => {
+      if (a.group !== b.group) {
+        return a.group.localeCompare(b.group);
+      }
+      return a.label.localeCompare(b.label);
+    });
+
+    res.json(providers);
+  } catch (e) {
+    console.error('[available-providers] Error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 router.get("/", async (req, res) => {
   try {

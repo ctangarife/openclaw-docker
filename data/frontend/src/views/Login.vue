@@ -1,6 +1,6 @@
 <template>
   <div class="login">
-    <h1>Molbot – Administración</h1>
+    <h1>OpenClaw – Administración</h1>
     <p>Introduce el secret de la UI para continuar.</p>
     <form @submit.prevent="submit">
       <input
