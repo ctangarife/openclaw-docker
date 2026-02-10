@@ -1,0 +1,14 @@
+{
+  "name": "molbot-credential-service",
+  "version": "1.0.0",
+  "description": "Secure credential service for Molbot - serves credentials via IPC socket",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.0",
+    "dotenv": "^16.0.0"
+  }
+}

@@ -59,8 +59,9 @@ if [ -n "$MONGO_URI" ] && [ -n "$ENCRYPTION_KEY" ] && [ -f /app/sync-auth-profil
   fi
   
   # CRÍTICO: Generar variables de entorno con las API keys
-  # OpenClaw lee las credenciales desde variables de entorno: {PROVIDER}_API_KEY
-  echo "Generando variables de entorno con API keys..." >&2
+  # SEGURIDAD: Las variables se generan pero NO se exportan al entorno del proceso principal
+  # Solo se escriben en el archivo .env para que el wrapper las cargue bajo demanda
+  echo "Preparando credenciales desde MongoDB..." >&2
   ENV_FILE="/home/node/.openclaw/.env"
   if [ -f /app/generate-env-from-mongo.cjs ]; then
     MONGO_URI="$MONGO_URI" \
@@ -68,17 +69,23 @@ if [ -n "$MONGO_URI" ] && [ -n "$ENCRYPTION_KEY" ] && [ -f /app/sync-auth-profil
       node /app/generate-env-from-mongo.cjs > "$ENV_FILE" 2>/dev/null || {
       echo "⚠️  Error generando variables de entorno (continuando)" >&2
     }
-    
+
     if [ -f "$ENV_FILE" ]; then
       chown node:node "$ENV_FILE" 2>/dev/null || true
       chmod 600 "$ENV_FILE" 2>/dev/null || true
-      echo "✅ Variables de entorno generadas en $ENV_FILE" >&2
-      # Cargar las variables de entorno para este proceso
-      set -a
-      . "$ENV_FILE" 2>/dev/null || true
-      set +a
+      echo "✅ Credenciales preparadas en $ENV_FILE" >&2
+      # NO cargar las variables aquí - el wrapper las cargará en un subproceso aislado
     fi
   fi
+
+  # LIMPIAR VARIABLES SENSIBLES DEL ENTORNO
+  # Estas variables ya no son necesarias después de la sincronización
+  # y removerlas previene exfiltración vía process.env
+  unset ENCRYPTION_KEY 2>/dev/null || true
+  unset MONGO_URI 2>/dev/null || true
+  unset MONGO_PASSWORD 2>/dev/null || true
+  unset MONGO_INITDB_ROOT_USERNAME 2>/dev/null || true
+  echo "🔒 Variables sensibles removidas del entorno del proceso" >&2
 fi
 
 # Asegurar que openclaw.json existe
@@ -287,15 +294,22 @@ load_env_file() {
   fi
 }
 
-# Cargar variables de entorno como usuario node
-load_env_file "/home/node/.openclaw/.env" && echo "✅ Variables de entorno de API keys cargadas" >&2 || true
-load_env_file "/home/node/.openclaw/integrations.env" && echo "✅ Variables de entorno de integraciones cargadas" >&2 || true
+# SEGURIDAD: Limpiar variables sensibles que puedan haber pasado al wrapper
+unset ENCRYPTION_KEY 2>/dev/null || true
+unset MONGO_URI 2>/dev/null || true
+unset MONGO_PASSWORD 2>/dev/null || true
+unset MONGO_INITDB_ROOT_USERNAME 2>/dev/null || true
 
-# Debug: verificar que TELEGRAM_BOT_TOKEN está disponible
+# Cargar variables de entorno como usuario node
+# Solo API keys de proveedores y tokens de integraciones
+load_env_file "/home/node/.openclaw/.env" && echo "✅ API keys de proveedores cargadas" >&2 || true
+load_env_file "/home/node/.openclaw/integrations.env" && echo "✅ Tokens de integraciones cargados" >&2 || true
+
+# Verificar que TELEGRAM_BOT_TOKEN está disponible
 if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-  echo "✅ TELEGRAM_BOT_TOKEN está disponible (longitud: ${#TELEGRAM_BOT_TOKEN})" >&2
+  echo "✅ TELEGRAM_BOT_TOKEN disponible" >&2
 else
-  echo "⚠️  TELEGRAM_BOT_TOKEN NO está disponible" >&2
+  echo "⚠️  TELEGRAM_BOT_TOKEN NO configurado" >&2
 fi
 
 # Ejecutar el comando con las variables de entorno cargadas
@@ -308,5 +322,10 @@ WRAPPER_EOF
   # Ejecutar gateway usando el wrapper
   exec gosu node /tmp/gateway-wrapper.sh "$@"
 else
+  # Si ya somos node, limpiar variables sensibles
+  unset ENCRYPTION_KEY 2>/dev/null || true
+  unset MONGO_URI 2>/dev/null || true
+  unset MONGO_PASSWORD 2>/dev/null || true
+  unset MONGO_INITDB_ROOT_USERNAME 2>/dev/null || true
   exec "$@"
 fi
