@@ -103,15 +103,32 @@ app.get("/health", async (req, res) => {
 });
 
 // Redirección al Dashboard de OpenClaw con token (sin comandos ni pegar token).
-// Por defecto redirige a http://localhost/chat?token=... (puerto 80, sin :18789).
-// Para otro host/puerto define OPENCLAW_DASHBOARD_PUBLIC_URL en .env (ej. http://192.168.1.10).
+// Detecta automáticamente el host desde la request, o usa OPENCLAW_DASHBOARD_PUBLIC_URL si está configurada.
+// Ejemplo de configuración manual en .env: OPENCLAW_DASHBOARD_PUBLIC_URL=http://192.168.1.10
 function redirectOpenClawDashboard(req, res) {
   const token = process.env.OPENCLAW_GATEWAY_TOKEN;
   if (!token) {
     return res.status(503).send("OPENCLAW_GATEWAY_TOKEN no configurado en el servidor.");
   }
+
+  // Prioridad: 1) Variable de entorno, 2) Host detectado desde la request, 3) localhost como fallback
+  let base;
   const raw = (process.env.OPENCLAW_DASHBOARD_PUBLIC_URL || "").trim();
-  const base = raw || "http://localhost";
+
+  if (raw) {
+    // Usar URL configurada explícitamente en .env
+    base = raw;
+  } else {
+    // Detectar host desde la request (soporta IP, dominio, localhost)
+    // Nginx debe reenviar los headers X-Forwarded-* o Host
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+
+    // Remover puerto si está presente (para usar puerto 80 por defecto)
+    const hostWithoutPort = host.split(':')[0];
+    base = `${protocol}://${hostWithoutPort}`;
+  }
+
   // El Control UI acepta ?gatewayUrl=ws://... para configurar el WebSocket (se guarda en localStorage)
   // Redirigir a /set-gateway-token para que Nginx setee la cookie, luego a /chat con gatewayUrl
   const baseClean = base.replace(/\/$/, "");

@@ -42,7 +42,9 @@ services:
       PORT: 3001
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
-      # Redirección /openclaw-dashboard → mismo puerto 80 (Nginx). Ajustar si accedes por IP u otro host.
+      # Redirección /openclaw-dashboard → mismo puerto 80 (Nginx).
+      # El sistema detecta automáticamente el host desde la request (localhost, IP o dominio).
+      # Para configuración manual, establece OPENCLAW_DASHBOARD_PUBLIC_URL.
       OPENCLAW_DASHBOARD_PUBLIC_URL: ${OPENCLAW_DASHBOARD_PUBLIC_URL:-http://localhost}
       # Directorio del agente para sincronización de API keys (ruta absoluta dentro del contenedor)
       OPENCLAW_AGENT_DIR: /home/node/.openclaw/agents/main/agent

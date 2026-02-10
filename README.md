@@ -96,7 +96,15 @@ Si quieres que el bot responda en plataformas de mensajería:
 ### Paso 6: Acceder al Dashboard de OpenClaw
 
 1. **Abrir el Dashboard**: http://localhost/openclaw-dashboard
+   - También funciona con IP: http://192.168.1.x/openclaw-dashboard
+   - O con dominio: http://tu-dominio.com/openclaw-dashboard
+   - El sistema detecta automáticamente el host desde el cual accedes
 2. ¡Listo! Ya puedes chatear con el bot usando las credenciales configuradas
+
+**Nota**: Para configurar manualmente el host (ej. para acceso remoto con dominio), puedes establecer la variable `OPENCLAW_DASHBOARD_PUBLIC_URL` en `.env`:
+```bash
+OPENCLAW_DASHBOARD_PUBLIC_URL=http://mi-dominio.com
+```
 
 ---
 
@@ -108,7 +116,7 @@ Si quieres que el bot responda en plataformas de mensajería:
 | **Credenciales** | http://localhost/admin/credentials | Gestión de API keys |
 | **Configuración** | http://localhost/admin/config | Configuración del modelo |
 | **Integraciones** | http://localhost/admin/integrations | Gestión de plataformas de mensajería |
-| **OpenClaw Dashboard** | http://localhost/openclaw-dashboard | Chat con el bot (token auto-aplicado) |
+| **OpenClaw Dashboard** | http://localhost/openclaw-dashboard | Chat con el bot (token auto-aplicado) - también funciona con IP o dominio |
 | **Healthcheck** | http://localhost:8080/nginx-health | Verificar estado de Nginx |
 
 ---
@@ -154,6 +162,28 @@ El modelo por defecto se usa cuando el agente no tiene un modelo específico con
 ---
 
 ## Solución de Problemas
+
+### Acceso remoto (desde otra red)
+
+Para acceder al bot desde una red diferente (ej: desde Internet o otra LAN), tienes dos opciones:
+
+**Opción 1: Detección automática (Recomendado)**
+```bash
+# Si accedes por IP o dominio, el sistema detecta automáticamente el host
+http://192.168.1.100/openclaw-dashboard
+http://mi-dominio.com/openclaw-dashboard
+```
+
+**Opción 2: Configurar URL pública manualmente**
+```bash
+# Agregar a tu archivo .env:
+OPENCLAW_DASHBOARD_PUBLIC_URL=http://tu-dominio.com
+
+# Para HTTPS:
+OPENCLAW_DASHBOARD_PUBLIC_URL=https://tu-dominio.com
+```
+
+**Nota**: Si usas un proxy reverso adicional (ej: Cloudflare, Nginx externo), configura `OPENCLAW_DASHBOARD_PUBLIC_URL` con el dominio público.
 
 ### MongoDB queda "unhealthy"
 
@@ -287,4 +317,24 @@ Cuando agregas o modificas una integración:
 - Todos los tokens se cifran con **AES-256-GCM** antes de almacenarse
 - La API está protegida con el header `X-UI-Secret`
 - El gateway de OpenClaw usa tokenización independiente
+- Configuración de agente con restricciones de paths para prevenir acceso no autorizado
 - En producción, configura `OPENCLAW_ALLOW_INSECURE_AUTH=false`
+
+**Advertencia**: Revisa `doc/SECURITY-ADVISORY-001.md` para información sobre consideraciones de seguridad importantes.
+
+---
+
+## Roadmap y Desarrollo
+
+Para ver las funcionalidades planeadas y el estado del proyecto, consulta:
+- **`doc/ROADMAP.md`** - Plan de desarrollo completo con 8 fases
+- **`doc/SECURITY-ADVISORY-001.md`** - Advisory de seguridad y mitigaciones implementadas
+- **`doc/SECURITY-IMPLEMENTATION-001.md`** - Detalles de implementación de seguridad
+
+**Funcionalidades futuras**:
+- Múltiples agentes con configuraciones independientes
+- Gestión de tools y skills
+- Sessions y memoria persistente
+- Automatización y cron jobs
+- Multi-tenancy y RBAC
+- Analytics y métricas

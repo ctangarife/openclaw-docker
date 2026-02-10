@@ -33,6 +33,17 @@ if [ -n "$MONGO_URI" ] && [ -n "$ENCRYPTION_KEY" ] && [ -f /app/sync-auth-profil
   mkdir -p "$AGENT_DIR"
   chown -R node:node "$AGENT_DIR" 2>/dev/null || true
   chmod -R 755 "$AGENT_DIR" 2>/dev/null || true
+
+  # SEGURIDAD CRÍTICA: Copiar agent.json si existe en el workspace
+  # Esto asegura que las configuraciones de seguridad (tools forbidden) se apliquen
+  WORKSPACE_AGENT_FILE="/home/node/.openclaw/workspace/agents/main/agent/agent.json"
+  CONFIG_AGENT_FILE="/home/node/.openclaw/agents/main/agent/agent.json"
+  if [ -f "$WORKSPACE_AGENT_FILE" ]; then
+    echo "⚠️  Aplicando configuración de seguridad desde workspace..." >&2
+    cp "$WORKSPACE_AGENT_FILE" "$CONFIG_AGENT_FILE" 2>/dev/null || true
+    chown node:node "$CONFIG_AGENT_FILE" 2>/dev/null || true
+    chmod 644 "$CONFIG_AGENT_FILE" 2>/dev/null || true
+  fi
   
   AGENT_DIR="$AGENT_DIR" \
     OPENCLAW_CONFIG_DIR="/home/node/.openclaw" \
