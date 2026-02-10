@@ -15,7 +15,6 @@ services:
       # el volumen tiene datos viejos: docker compose down -v && docker compose up -d
       - mongodb_data:/data/db
       - ./db/init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
-      - ./db/healthcheck.sh:/healthcheck.sh:ro
     ports:
       - "27017:27017"
     networks:
@@ -23,13 +22,12 @@ services:
         aliases:
           - mongodb
     healthcheck:
-      # tr quita \r por si healthcheck.sh tiene CRLF (Windows)
-      test: ["CMD", "sh", "-c", "tr -d '\\r' < /healthcheck.sh | sh"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      # Primera arrancada con volumen vacío: el init de la imagen puede tardar ~1 min
-      start_period: 120s
+      # Usar mongosh directamente con credenciales hardcoded (env vars no disponibles en healthcheck context)
+      test: ["CMD", "mongosh", "--quiet", "admin", "-u", "root", "-p", "${MONGO_PASSWORD}", "--eval", "db.adminCommand({ping: 1})"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   config-service:
     build:
@@ -55,8 +53,8 @@ services:
       - openclaw_config:/home/node/.openclaw:rw
       # Socket de Docker para poder reiniciar contenedores
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "3001:3001"
+    # NOTA: El puerto 3001 NO se expone al host. Todo el tráfico debe pasar por nginx (puerto 80).
+    # Esto es más seguro y funciona con firewalls ya que solo el puerto 80/443 necesita estar abierto.
     networks:
       molbot_net:
         aliases:
@@ -131,6 +129,13 @@ services:
       - --port
       - "18789"
       - --allow-unconfigured
+    healthcheck:
+      # Verificar que el gateway está escuchando en el puerto 18789
+      test: ["CMD", "curl", "-f", "http://localhost:18789/__openclaw__/canvas/index.html"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       molbot_net:
         aliases:
@@ -179,6 +184,8 @@ services:
       - ./server/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./server/nginx/conf.d:/etc/nginx/conf.d:ro
       - ./data/static:/usr/share/nginx/html:ro
+    # Instalar curl para healthcheck
+    command: /bin/sh -c "apk add --no-cache curl && exec nginx -g 'daemon off;'"
     depends_on:
       molbot-ui:
         condition: service_completed_successfully
@@ -190,7 +197,7 @@ services:
           - nginx
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/nginx-health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/nginx-health"]
       interval: 30s
       timeout: 3s
       retries: 3

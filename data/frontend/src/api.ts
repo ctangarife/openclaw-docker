@@ -30,7 +30,7 @@ export async function createCredential(
 
 export async function updateCredential(
   id: string,
-  data: { enabled?: boolean; name?: string; token?: string; metadata?: Record<string, any> }
+  data: { enabled?: boolean; name?: string; token?: string; metadata?: Record<string, any>; fallbackModel?: string | null }
 ) {
   const r = await fetch(`${API_BASE}/api/credentials/${id}`, {
     method: "PATCH",
@@ -109,4 +109,48 @@ export async function putConfig(config: Record<string, unknown>) {
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+// Rate Limiting Configuration
+export async function getQueueConfig() {
+  const r = await fetch(`${API_BASE}/api/queue/config`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    success: boolean;
+    config: {
+      providerLimits: Record<string, number>;
+      globalEnabled: boolean;
+      maxRetries: number;
+      enableFallback: boolean;
+    };
+    currentLimits: Record<string, number>;
+    defaults: Record<string, number>;
+    updatedAt: string;
+  }>;
+}
+
+export async function saveQueueConfig(config: {
+  providerLimits?: Record<string, number>;
+  globalEnabled?: boolean;
+  maxRetries?: number;
+  enableFallback?: boolean;
+}) {
+  const r = await fetch(`${API_BASE}/api/queue/config`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getQueueStats() {
+  const r = await fetch(`${API_BASE}/api/queue/stats`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    success: boolean;
+    timestamp: string;
+    queues: Record<string, { running: number; queued: number; limit: number }>;
+    summary: { totalProviders: number; totalRunning: number; totalQueued: number };
+  }>;
 }

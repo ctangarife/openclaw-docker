@@ -29,6 +29,8 @@ const schema = new mongoose.Schema(
     name: String,
     tokenEncrypted: String,
     enabled: { type: Boolean, default: true },
+    // Campo para modelo de fallback (ej: "anthropic/claude-3-5-haiku-20241022")
+    fallbackModel: { type: String, default: null },
     // Campos adicionales para proveedores específicos (ej: Cloudflare Account ID, Gateway ID)
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
@@ -339,6 +341,7 @@ router.get("/", async (req, res) => {
       provider: c.provider,
       name: c.name,
       enabled: c.enabled,
+      fallbackModel: c.fallbackModel || null,
       metadata: c.metadata || {},
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
@@ -351,7 +354,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   try {
-    const { provider, name, token, metadata } = req.body;
+    const { provider, name, token, metadata, fallbackModel } = req.body;
     if (!provider || !token) {
       return res.status(400).json({ error: "provider and token are required" });
     }
@@ -361,6 +364,7 @@ router.post("/", async (req, res) => {
       name: (name || provider).trim(),
       tokenEncrypted,
       enabled: true,
+      fallbackModel: fallbackModel || null,
       metadata: metadata || {},
     });
     
@@ -371,10 +375,10 @@ router.post("/", async (req, res) => {
     const openclawJsonPath = '/home/node/.openclaw/openclaw.json';
     // Ejecutar sincronización de forma asíncrona (no bloquear la respuesta)
     console.log(`[POST /credentials] Iniciando sincronización automática...`);
-    
+
     // Invalidar caché de modelos cuando se agrega una credencial
     clearModelsCache();
-    
+
     syncAuthProfiles(agentDir, openclawJsonPath)
       .then(async (result) => {
         console.log(`[POST /credentials] Sincronización completada, resultado:`, result.success ? 'success' : 'failed');
@@ -403,6 +407,7 @@ router.post("/", async (req, res) => {
       provider: doc.provider,
       name: doc.name,
       enabled: doc.enabled,
+      fallbackModel: doc.fallbackModel || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     });
@@ -413,12 +418,13 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
-    const { enabled, name, token, metadata } = req.body;
+    const { enabled, name, token, metadata, fallbackModel } = req.body;
     const update = {};
     if (typeof enabled === "boolean") update.enabled = enabled;
     if (name !== undefined) update.name = name.trim();
     if (token !== undefined) update.tokenEncrypted = encrypt(token);
     if (metadata !== undefined) update.metadata = metadata;
+    if (fallbackModel !== undefined) update.fallbackModel = fallbackModel || null;
 
     const doc = await Credential.findByIdAndUpdate(
       req.params.id,
@@ -431,10 +437,10 @@ router.patch("/:id", async (req, res) => {
     const agentDir = process.env.OPENCLAW_AGENT_DIR || '/home/node/.openclaw/agents/main/agent';
     // Siempre usar ruta absoluta del contenedor (el volumen está montado en /home/node/.openclaw)
     const openclawJsonPath = '/home/node/.openclaw/openclaw.json';
-    
+
     // Invalidar caché de modelos cuando se actualiza una credencial
     clearModelsCache();
-    
+
     syncAuthProfiles(agentDir, openclawJsonPath)
       .then(async (result) => {
         if (result.success) {
@@ -458,6 +464,7 @@ router.patch("/:id", async (req, res) => {
       provider: doc.provider,
       name: doc.name,
       enabled: doc.enabled,
+      fallbackModel: doc.fallbackModel || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     });
@@ -478,7 +485,7 @@ router.delete("/:id", async (req, res) => {
     
     // Invalidar caché de modelos cuando se elimina una credencial
     clearModelsCache();
-    
+
     syncAuthProfiles(agentDir, openclawJsonPath)
       .then(async (result) => {
         if (result.success) {

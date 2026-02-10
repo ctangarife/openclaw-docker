@@ -11,6 +11,7 @@ const notificationsRouter = require("./routes/notifications");
 const channelsRouter = require("./routes/channels");
 const telegramRouter = require("./routes/telegram");
 const integrationsRouter = require("./routes/integrations");
+const queueRouter = require("./routes/queue");
 const authMiddleware = require("./middleware/auth");
 const { getSystemHealth, getSimpleHealth } = require("./lib/health-check");
 const { auditMiddleware, notify } = require("./lib/audit-log");
@@ -67,6 +68,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/channels", authMiddleware, channelsRouter);
 app.use("/api/telegram", telegramRouter);
 app.use("/api/integrations", authMiddleware, integrationsRouter);
+app.use("/api/queue", authMiddleware, queueRouter);
 
 // Health check con dos modos:
 // - Simple (para load balancers): GET /health

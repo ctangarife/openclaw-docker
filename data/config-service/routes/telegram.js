@@ -1,11 +1,13 @@
 /**
  * Servicio de Telegram para OpenClaw
  * Recibe webhooks de Telegram y los reenvía a OpenClaw Gateway
+ * Con sistema de colas FIFO y rate limiting por provider
  */
 
 const express = require('express');
 const axios = require('axios');
 const mongoose = require('mongoose');
+const { globalClient: openclawClient } = require('../lib/openclaw-client');
 
 const router = express.Router();
 
@@ -133,57 +135,62 @@ router.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Enviar a OpenClaw Gateway
-    const openclawUrl = process.env.OPENCLAW_GATEWAY_URL || 'http://openclaw-gateway:18789';
-    const openclawToken = process.env.OPENCLAW_GATEWAY_TOKEN;
-
+    // Enviar a OpenClaw Gateway con sistema de colas y retries
     console.log(`[Telegram] Enviando a OpenClaw: "${userMessage}"`);
 
-    const openclawResponse = await axios.post(`${openclawUrl}/v1/chat`, {
-      model: 'anthropic/claude-3-5-haiku-20241022',
-      max_tokens: 4096,
-      messages: [
-        { role: 'user', content: userMessage }
-      ]
-    }, {
-      headers: {
-        'Authorization': `Bearer ${openclawToken}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 60000
-    });
+    try {
+      const openclawResponse = await openclawClient.chat({
+        model: 'anthropic/claude-3-5-haiku-20241022',
+        messages: [
+          { role: 'user', content: userMessage }
+        ],
+        maxTokens: 4096,
+        metadata: {
+          channel: 'telegram',
+          chatId: chatId,
+          messageId: messageId
+        }
+      });
 
-    const reply = openclawResponse.data.content[0].text;
+      const reply = openclawResponse.content[0].text;
 
-    // Enviar respuesta a Telegram
-    const telegramUrl = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+      // Si se usó fallback, notificar al usuario
+      let finalReply = reply;
+      if (openclawResponse.fallback) {
+        finalReply = `⚠️ Usando modelo alternativo (${openclawResponse.model.split('/').pop()})\n\n${reply}`;
+      }
 
-    await axios.post(telegramUrl, {
-      chat_id: chatId,
-      text: reply,
-      parse_mode: 'Markdown'
-    });
+      // Enviar respuesta a Telegram
+      const telegramUrl = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
 
-    console.log(`[Telegram] ✅ Respuesta enviada a Telegram`);
+      await axios.post(telegramUrl, {
+        chat_id: chatId,
+        text: finalReply,
+        parse_mode: 'Markdown'
+      });
 
-    res.sendStatus(200);
+      console.log(`[Telegram] ✅ Respuesta enviada a Telegram (${openclawResponse.duration}ms, ${openclawResponse.attempts} intentos)`);
 
+      res.sendStatus(200);
+
+    } catch (openclawError) {
+      // Error de OpenClaw (agotados reintentos y fallback)
+      console.error(`[Telegram] ❌ Error de OpenClaw:`, openclawError.message);
+
+      // Enviar mensaje de error al usuario
+      try {
+        await axios.post(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          chat_id: chatId,
+          text: '❌ Lo siento, el servicio está sobrecargado. Inténtalo de nuevo en unos momentos.'
+        });
+      } catch (e) {
+        // Ignorar errores al enviar error
+      }
+
+      res.sendStatus(200);
+    }
   } catch (error) {
     console.error('[Telegram] Error procesando webhook:', error.message);
-
-    // Enviar mensaje de error al usuario si es posible
-    try {
-      const config = await TelegramConfig.findOne({ enabled: true });
-      if (config && req.body.message) {
-        await axios.post(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-          chat_id: req.body.message.chat.id,
-          text: '❌ Error procesando tu mensaje. Inténtalo de nuevo.'
-        });
-      }
-    } catch (e) {
-      // Ignorar errores al enviar error
-    }
-
     res.sendStatus(200);
   }
 });

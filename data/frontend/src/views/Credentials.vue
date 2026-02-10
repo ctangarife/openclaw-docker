@@ -257,10 +257,12 @@ interface ProviderInfo {
 
 const list = ref<Credential[]>([]);
 const availableProviders = ref<ProviderInfo[]>([]);
+const availableModels = ref<Record<string, Array<{ id: string; name: string }>>>({});
 const error = ref("");
 const syncMessage = ref("");
 const syncing = ref(false);
 const loadingProviders = ref(false);
+const loadingModels = ref(false);
 const showForm = ref(false);
 const editingId = ref<string | null>(null);
 const validating = ref(false);
@@ -307,6 +309,20 @@ const selectedProviderInfo = computed(() => {
   return form.value.provider ? availableProviders.value.find(p => p.value === form.value.provider) : null;
 });
 
+const availableFallbackModels = computed(() => {
+  if (!form.value.provider) return [];
+  // Get models for the selected provider
+  const providerModels = availableModels.value[form.value.provider] || [];
+  return providerModels;
+});
+
+const providerForFallback = computed(() => {
+  // Get the base provider (without -oauth, -token, etc.)
+  if (!form.value.provider) return null;
+  const baseProvider = form.value.provider.split('-')[0];
+  return baseProvider;
+});
+
 function getProviderDisplayName(provider: string): string {
   const providerInfo = availableProviders.value.find(p => p.value === provider);
   return providerInfo?.defaultName || provider;
@@ -331,7 +347,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function onProviderChange() {
+async function onProviderChange() {
   if (!editingId.value && selectedProviderInfo.value) {
     form.value.name = selectedProviderInfo.value.defaultName;
   }
@@ -424,6 +440,7 @@ function edit(c: Credential) {
     provider: c.provider,
     name: c.name,
     token: "",
+    fallbackModel: c.fallbackModel || "",
     cloudflareAccountId: c.metadata?.accountId || "",
     cloudflareGatewayId: c.metadata?.gatewayId || "",
     ollamaBaseUrl: c.metadata?.baseUrl || "",

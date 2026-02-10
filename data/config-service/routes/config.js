@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
+const { invalidateFallbackCache } = require("../lib/openclaw-client");
 
 const schema = new mongoose.Schema(
   { key: String, value: mongoose.Schema.Types.Mixed },
@@ -201,11 +202,11 @@ router.put("/", async (req, res) => {
       const { restartGateway } = require("../lib/docker-utils");
       const agentDir = process.env.OPENCLAW_AGENT_DIR || "/home/node/.openclaw/agents/main/agent";
       const openclawJsonPath = "/home/node/.openclaw/openclaw.json";
-      
+
       try {
         await syncAuthProfiles(agentDir, openclawJsonPath);
         console.log(`[PUT /config] Modelo por defecto actualizado a: ${body.defaultAgentModel}`);
-        
+
         // Reiniciar gateway para aplicar el nuevo modelo
         const restartResult = await restartGateway();
         if (restartResult.success) {
@@ -217,6 +218,12 @@ router.put("/", async (req, res) => {
         console.error(`[PUT /config] Error sincronizando después de actualizar modelo:`, syncErr.message);
         // No fallar la request, solo loguear el error
       }
+    }
+
+    // Si se actualizaron los modelos de fallback, invalidar el caché
+    if (body.fallbackModel1 !== undefined || body.fallbackModel2 !== undefined) {
+      invalidateFallbackCache();
+      console.log(`[PUT /config] Caché de fallback invalidado por cambio en modelos de soporte`);
     }
     
     // Si se actualizaron credenciales, invalidar caché de modelos
