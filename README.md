@@ -8,6 +8,7 @@ Administración centralizada para el bot OpenClaw: configuración, credenciales 
 - **Rate Limiting inteligente**: Sistema de colas FIFO por provider con límites de concurrencia configurables
 - **Fallback en cascada**: Hasta 2 modelos de soporte que se activan automáticamente si falla el principal
 - **Integraciones con plataformas de mensajería**: Telegram, Slack, Discord, WhatsApp, y más
+- **Automatización de navegador**: Agent-browser para navegación web headless desde el chat del bot
 - **Interfaz web moderna**: UI en Vue 3 para administrar todo sin editar archivos
 - **Sincronización automática**: Las credenciales e integraciones se sincronizan automáticamente con OpenClaw
 - **Seguridad**: Tokens cifrados con AES-256-GCM en MongoDB
@@ -18,6 +19,7 @@ Administración centralizada para el bot OpenClaw: configuración, credenciales 
 - **MongoDB** - Almacenamiento de credenciales, configuración e integraciones
 - **config-service** (Node.js/Express) - API para gestión de credenciales e integraciones
 - **molbot-ui** (Vue 3) - Interfaz web de administración
+- **agent-browser** (Node.js) - HTTP wrapper para automatización de navegador headless
 - **Nginx** - Reverse proxy y punto de entrada único
 - **OpenClaw Gateway** - Bot de IA construido desde el [repo oficial](https://github.com/openclaw/openclaw)
 
@@ -137,6 +139,7 @@ OPENCLAW_DASHBOARD_PUBLIC_URL=http://mi-dominio.com
 | **Integraciones** | http://localhost/admin/integrations | Gestión de plataformas de mensajería |
 | **OpenClaw Dashboard** | http://localhost/openclaw-dashboard | Chat con el bot (token auto-aplicado) - también funciona con IP o dominio |
 | **Healthcheck** | http://localhost:8080/nginx-health | Verificar estado de Nginx |
+| **Agent-Browser API** | http://agent-browser:9222 | API de automatización de navegador (interna) |
 
 ---
 
@@ -177,6 +180,11 @@ Las credenciales se almacenan **cifradas** en MongoDB. Cuando las agregas o modi
 ### Paso 4: Configuración del Modelo
 
 El modelo por defecto se usa cuando el agente no tiene un modelo específico configurado. Puedes cambiarlo en cualquier momento desde la interfaz.
+
+---
+
+Para más detalles, consulta el tutorial completo:
+- **`doc/AGENT-BROWSER-TUTORIAL.md`** - Guía completa de uso con ejemplos
 
 ---
 
@@ -401,6 +409,7 @@ Fallback por defecto (hardcoded)
 
 Para ver las funcionalidades planeadas y el estado del proyecto, consulta:
 - **`doc/ROADMAP.md`** - Plan de desarrollo completo con 8 fases
+- **`doc/AGENT-BROWSER-TUTORIAL.md`** - Tutorial completo de automatización de navegador
 - **`doc/SECURITY-ADVISORY-001.md`** - Advisory de seguridad y mitigaciones implementadas
 - **`doc/SECURITY-IMPLEMENTATION-001.md`** - Detalles de implementación de seguridad
 

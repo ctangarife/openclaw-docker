@@ -9,7 +9,8 @@ dist/
 data/molbot-workspace/agents/
 data/molbot-workspace/openclaw.json
 **/.git
-doc/*
+doc/CHECKPOINT*
+doc/SECURITY*
 data/molbot-workspace/workspace/
 
 

@@ -108,11 +108,19 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       # CRÍTICO: Forzar ruta absoluta del contenedor para que coincida con el named volume
       OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      # Agent browser wrapper URL (para que el agente pueda usar browser automation)
+      AGENT_BROWSER_URL: http://agent-browser:9222
     volumes:
       # Named volume compartido con config-service para sincronización multiplataforma
       - openclaw_config:/home/node/.openclaw
       # Workspace sigue siendo bind mount para acceso directo desde el host
       - ${OPENCLAW_WORKSPACE_DIR:-./data/molbot-workspace/workspace}:/home/node/.openclaw/workspace
+      # Agent directory para tools personalizados (agent-browser, etc.)
+      - ./data/molbot-workspace/agents/main/agent:/home/node/.openclaw/workspace/agents/main/agent:ro
+      # Skills directory para skills personalizados (puppeteer-browser, etc.)
+      - ./data/molbot-workspace/agents/main/skills:/home/node/.openclaw/workspace/agents/main/skills:ro
+      # Volume para screenshots y artefactos de agent-browser (compartido con agent-browser container)
+      - agent_browser_workspace:/workspace:rw
     # Puertos NO expuestos al host: solo accesible desde Nginx (red Docker).
     # Nginx hace proxy a openclaw-gateway:18789 dentro de la red molbot_net.
     # Si necesitas acceso directo al gateway, descomenta las líneas de ports.
@@ -144,6 +152,39 @@ services:
     depends_on:
       config-service:
         condition: service_healthy
+      agent-browser:
+        condition: service_healthy
+
+  # Agent Browser - Headless browser automation for AI agents
+  agent-browser:
+    build:
+      context: ./build/agent-browser
+      dockerfile: Dockerfile
+    image: molbot-agent-browser:latest
+    container_name: molbot-agent-browser
+    restart: unless-stopped
+    environment:
+      # Puerto del HTTP wrapper
+      PORT: 9222
+      # Workspace compartido para screenshots y artefactos
+      WORKSPACE: /workspace
+      # OpenClaw workspace para guardar screenshots accesibles desde el gateway
+      OPENCLAW_WORKSPACE: /home/node/.openclaw/workspace
+    volumes:
+      # Volume para screenshots y artefactos (compartido con openclaw-gateway)
+      - agent_browser_workspace:/workspace:rw
+      # Workspace de OpenClaw para guardar screenshots accesibles desde el gateway
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/molbot-workspace/workspace}:/home/node/.openclaw/workspace:rw
+    networks:
+      molbot_net:
+        aliases:
+          - agent-browser
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=5", "http://localhost:9222/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # CLI para onboard, canales, dashboard: docker compose --profile tools run --rm openclaw-cli <cmd>
   # user: "0" evita EACCES en identity/device.json con volúmenes montados en Windows
@@ -214,4 +255,7 @@ volumes:
     driver: local
   openclaw_config:
     name: molbot_openclaw_config
+    driver: local
+  agent_browser_workspace:
+    name: molbot_agent_browser_workspace
     driver: local

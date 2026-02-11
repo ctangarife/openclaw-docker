@@ -154,3 +154,74 @@ export async function getQueueStats() {
     summary: { totalProviders: number; totalRunning: number; totalQueued: number };
   }>;
 }
+
+// Agent Browser Configuration
+export async function getAgentBrowserConfig() {
+  const r = await fetch(`${API_BASE}/api/agent-browser`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    AGENT_BROWSER_URL: string;
+    enabled: boolean;
+    maxConcurrentSessions: number;
+    sessionTimeout: number;
+    defaultScreenshot: {
+      onNavigation: boolean;
+      format: 'png' | 'jpeg';
+      quality: number;
+      fullPage: boolean;
+    };
+  }>;
+}
+
+export async function putAgentBrowserConfig(config: {
+  AGENT_BROWSER_URL?: string;
+  enabled?: boolean;
+  maxConcurrentSessions?: number;
+  sessionTimeout?: number;
+  defaultScreenshot?: {
+    onNavigation?: boolean;
+    format?: 'png' | 'jpeg';
+    quality?: number;
+    fullPage?: boolean;
+  };
+}) {
+  const r = await fetch(`${API_BASE}/api/agent-browser`, {
+    method: "PUT",
+    headers: getHeaders(),
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    AGENT_BROWSER_URL: string;
+    enabled: boolean;
+    maxConcurrentSessions: number;
+    sessionTimeout: number;
+    defaultScreenshot: {
+      onNavigation: boolean;
+      format: 'png' | 'jpeg';
+      quality: number;
+      fullPage: boolean;
+    };
+  }>;
+}
+
+export async function resetAgentBrowserConfig() {
+  const r = await fetch(`${API_BASE}/api/agent-browser/reset`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify({}),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<{
+    AGENT_BROWSER_URL: string;
+    enabled: boolean;
+    maxConcurrentSessions: number;
+    sessionTimeout: number;
+    defaultScreenshot: {
+      onNavigation: boolean;
+      format: 'png' | 'jpeg';
+      quality: number;
+      fullPage: boolean;
+    };
+  }>;
+}

@@ -44,7 +44,33 @@ if [ -n "$MONGO_URI" ] && [ -n "$ENCRYPTION_KEY" ] && [ -f /app/sync-auth-profil
     chown node:node "$CONFIG_AGENT_FILE" 2>/dev/null || true
     chmod 644 "$CONFIG_AGENT_FILE" 2>/dev/null || true
   fi
-  
+
+  # Copiar directorio tools/ si existe en el workspace
+  # Esto permite tools personalizados como agent-browser
+  WORKSPACE_TOOLS_DIR="/home/node/.openclaw/workspace/agents/main/agent/tools"
+  CONFIG_TOOLS_DIR="/home/node/.openclaw/agents/main/agent/tools"
+  if [ -d "$WORKSPACE_TOOLS_DIR" ]; then
+    echo "📦 Copiando tools personalizados desde workspace..." >&2
+    mkdir -p "$CONFIG_TOOLS_DIR" 2>/dev/null || true
+    cp -r "$WORKSPACE_TOOLS_DIR"/* "$CONFIG_TOOLS_DIR/" 2>/dev/null || true
+    chown -R node:node "$CONFIG_TOOLS_DIR" 2>/dev/null || true
+    chmod -R 644 "$CONFIG_TOOLS_DIR"/* 2>/dev/null || true
+    echo "✅ Tools personalizados copiados" >&2
+  fi
+
+  # Copiar directorio skills/ si existe en el workspace
+  # OpenClaw carga skills desde /home/node/.openclaw/skills/
+  WORKSPACE_SKILLS_DIR="/home/node/.openclaw/workspace/agents/main/skills"
+  CONFIG_SKILLS_DIR="/home/node/.openclaw/skills"
+  if [ -d "$WORKSPACE_SKILLS_DIR" ]; then
+    echo "📦 Copiando skills personalizados desde workspace..." >&2
+    mkdir -p "$CONFIG_SKILLS_DIR" 2>/dev/null || true
+    cp -r "$WORKSPACE_SKILLS_DIR"/* "$CONFIG_SKILLS_DIR/" 2>/dev/null || true
+    chown -R node:node "$CONFIG_SKILLS_DIR" 2>/dev/null || true
+    chmod -R 644 "$CONFIG_SKILLS_DIR"/* 2>/dev/null || true
+    echo "✅ Skills personalizados copiados" >&2
+  fi
+
   AGENT_DIR="$AGENT_DIR" \
     OPENCLAW_CONFIG_DIR="/home/node/.openclaw" \
     MONGO_URI="$MONGO_URI" \

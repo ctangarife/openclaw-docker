@@ -7,6 +7,7 @@ import Config from "./views/Config.vue";
 import Channels from "./views/Channels.vue";
 import Telegram from "./views/Telegram.vue";
 import Integrations from "./views/Integrations.vue";
+import AgentBrowser from "./views/AgentBrowser.vue";
 import Layout from "./components/Layout.vue";
 
 const routes = [
@@ -20,6 +21,7 @@ const routes = [
       { path: "config", component: Config },
       { path: "channels", component: Channels },
       { path: "integrations", component: Integrations },
+      { path: "agent-browser", component: AgentBrowser },
     ],
   },
 ];
