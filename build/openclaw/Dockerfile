@@ -49,6 +49,10 @@ RUN corepack enable && pnpm add -w mongoose@^8.0.3
 # Instalar gosu para poder cambiar de usuario después de corregir permisos
 RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
 
+# Crear alias 'openclaw' para ejecutar el CLI directamente
+RUN echo '#!/bin/sh\nexec node /app/dist/index.js "$@"' > /usr/local/bin/openclaw && \
+    chmod +x /usr/local/bin/openclaw
+
 ENV NODE_ENV=production
 # No establecer USER aquí, lo manejamos en el entrypoint después de corregir permisos
 # USER node

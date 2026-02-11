@@ -270,6 +270,20 @@ docker compose logs -f nginx
 
 ### OpenClaw CLI
 
+**Usar el alias `openclaw` (recomendado):**
+
+```bash
+# Ejecutar comandos directamente con el alias
+docker exec molbot-openclaw-gateway openclaw --version
+docker exec molbot-openclaw-gateway openclaw --help
+docker exec molbot-openclaw-gateway openclaw agents list
+
+# Ejecutar comandos interactivos
+docker exec -it molbot-openclaw-gateway openclaw shell
+```
+
+**Usar el contenedor openclaw-cli (onboard):**
+
 ```bash
 # Onboard/reconfigurar OpenClaw
 docker compose --profile tools run --rm openclaw-cli onboard --no-install-daemon
