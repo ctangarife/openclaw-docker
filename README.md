@@ -139,7 +139,7 @@ OPENCLAW_DASHBOARD_PUBLIC_URL=http://mi-dominio.com
 | **Integraciones** | http://localhost/admin/integrations | Gestión de plataformas de mensajería |
 | **OpenClaw Dashboard** | http://localhost/openclaw-dashboard | Chat con el bot (token auto-aplicado) - también funciona con IP o dominio |
 | **Healthcheck** | http://localhost:8080/nginx-health | Verificar estado de Nginx |
-| **Agent-Browser API** | http://agent-browser:9222 | API de automatización de navegador (interna) |
+| **Agent-Browser API** | http://localhost/admin/agent-browser | API de automatización de navegador (interna) |
 
 ---
 
