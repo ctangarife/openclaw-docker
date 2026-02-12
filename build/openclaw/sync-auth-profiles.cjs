@@ -46,7 +46,7 @@ const NATIVE_PROVIDER_MODELS = {
   'deepseek': 'deepseek/deepseek-chat',
   'opencode': 'opencode/claude-opus-4-5',
   'vercel-ai-gateway': 'vercel-ai-gateway/anthropic/claude-3.5-sonnet',
-  'zai': 'zai/glm-4-plus'
+  'zai': 'zai/glm-5'
 };
 
 // Providers PERSONALIZADOS: Requieren configuración en models.providers

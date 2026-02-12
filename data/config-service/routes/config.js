@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const { invalidateFallbackCache } = require("../lib/openclaw-client");
+const { getModelsFromOpenClawCatalog } = require("../lib/get-openclaw-models");
 
 const schema = new mongoose.Schema(
   { key: String, value: mongoose.Schema.Types.Mixed },
@@ -17,16 +18,16 @@ const modelsCache = {
   data: null,
   timestamp: 0,
   TTL: 5 * 60 * 1000, // 5 minutos
-  
+
   isValid() {
     return this.data && (Date.now() - this.timestamp < this.TTL);
   },
-  
+
   set(data) {
     this.data = data;
     this.timestamp = Date.now();
   },
-  
+
   clear() {
     this.data = null;
     this.timestamp = 0;
@@ -34,56 +35,11 @@ const modelsCache = {
 };
 
 /**
- * Obtiene modelos disponibles desde OpenClaw Gateway
+ * Obtiene modelos disponibles desde OpenClaw
  * @returns {Promise<Object>} Modelos agrupados por provider
  */
 async function fetchModelsFromOpenClaw() {
-  try {
-    const openclawUrl = process.env.OPENCLAW_GATEWAY_URL || 'http://openclaw-gateway:18789';
-    const response = await fetch(`${openclawUrl}/v1/models`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENCLAW_GATEWAY_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      signal: AbortSignal.timeout(5000) // Timeout de 5 segundos
-    });
-    
-    if (!response.ok) {
-      throw new Error(`OpenClaw responded with ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    // Filtrar solo modelos disponibles y agrupar por provider
-    const availableModels = data.models.filter(m => m.available === true);
-    const grouped = {};
-    
-    for (const model of availableModels) {
-      // Extraer provider del key (formato: "provider/model-name")
-      const parts = model.key.split('/');
-      if (parts.length !== 2) continue;
-      
-      const provider = parts[0];
-      const modelId = parts[1];
-      
-      if (!grouped[provider]) {
-        grouped[provider] = [];
-      }
-      
-      grouped[provider].push({
-        id: model.key, // Mantener formato completo "provider/model"
-        name: model.name
-      });
-    }
-    
-    console.log(`[fetchModelsFromOpenClaw] ✅ Obtenidos ${availableModels.length} modelos de ${Object.keys(grouped).length} providers`);
-    return grouped;
-    
-  } catch (error) {
-    console.error('[fetchModelsFromOpenClaw] ❌ Error:', error.message);
-    return null;
-  }
+  return await getModelsFromOpenClawCatalog();
 }
 
 router.get("/", async (req, res) => {
@@ -100,42 +56,60 @@ router.get("/", async (req, res) => {
 /**
  * GET /api/config/available-models
  * Retorna modelos disponibles, filtrando por credenciales habilitadas
+ * PRIORIZA: Obtiene modelos desde OpenClaw usando 'openclaw models list'
+ * FALLBACK: Usa provider-templates.js solo si el comando falla
+ * MANEJO PRIMERA CONFIGURACIÓN: Retorna lista vacía sin error si no hay credenciales
  */
 router.get("/available-models", async (req, res) => {
   try {
     console.log('[available-models] 📞 Endpoint llamado');
-    
+
     // 1. Verificar caché
     if (modelsCache.isValid()) {
       console.log('[available-models] ⚡ Retornando desde caché');
       return res.json(modelsCache.data);
     }
-    
-    console.log('[available-models] 🔄 Caché expirado, consultando OpenClaw...');
-    
-    // 2. Obtener modelos desde OpenClaw
-    const allModels = await fetchModelsFromOpenClaw();
-    
-    // 3. Obtener credenciales habilitadas (necesario tanto para OpenClaw como para fallback)
-    const Credential = mongoose.models.Credential || mongoose.model('Credential', 
+
+    console.log('[available-models] 🔄 Generando lista de modelos...');
+
+    // 2. Obtener credenciales habilitadas
+    const Credential = mongoose.models.Credential || mongoose.model('Credential',
       new mongoose.Schema({
         provider: String,
         enabled: { type: Boolean, default: true }
       }, { collection: 'api_credentials' })
     );
-    
+
     const credentials = await Credential.find({ enabled: true }).lean();
     const enabledProviders = new Set(credentials.map(c => c.provider));
-    
-    console.log(`[available-models] 🔑 Providers habilitados: ${Array.from(enabledProviders).join(', ')}`);
-    
-    if (!allModels) {
-      console.log('[available-models] ⚠️  OpenClaw no disponible, usando fallback');
-      // Fallback: usar provider-templates.js PERO filtrar por credenciales
+
+    const hasCredentials = credentials.length > 0;
+    console.log(`[available-models] 🔑 Providers habilitados: ${Array.from(enabledProviders).join(', ') || '(ninguno)'}`);
+
+    // 3. Si no hay credenciales habilitadas, retornar lista vacía (primera configuración)
+    if (!hasCredentials) {
+      console.log('[available-models] ℹ️  No hay credenciales configuradas (primera configuración)');
+      modelsCache.set({});
+      return res.json({});
+    }
+
+    // 3. Invalidar caché si se solicita explícitamente
+    if (req.query.invalidate === '1') {
+      modelsCache.clear();
+      console.log('[available-models] 🗑️  Caché invalidado por solicitud');
+      return res.json({ message: 'Caché invalidado' });
+    }
+
+    // 4. Obtener modelos desde el catálogo dinámico de OpenClaw
+    let allModels = await fetchModelsFromOpenClaw();
+
+    // 5. Si OpenClaw falla o no retorna modelos, usar fallback con provider-templates.js
+    if (!allModels || Object.keys(allModels).length === 0) {
+      console.log('[available-models] ⚠️  OpenClaw no retornó modelos, usando fallback');
       const { NATIVE_PROVIDER_MODEL_LIST, PROVIDER_TEMPLATES } = require("../lib/provider-templates");
-      
+
       const fallbackModels = {};
-      
+
       // Agregar modelos nativos (solo providers habilitados)
       for (const [provider, models] of Object.entries(NATIVE_PROVIDER_MODEL_LIST)) {
         if (enabledProviders.has(provider)) {
@@ -145,7 +119,7 @@ router.get("/available-models", async (req, res) => {
           }));
         }
       }
-      
+
       // Agregar modelos personalizados (solo providers habilitados)
       for (const [provider, config] of Object.entries(PROVIDER_TEMPLATES)) {
         if (enabledProviders.has(provider)) {
@@ -155,27 +129,25 @@ router.get("/available-models", async (req, res) => {
           }));
         }
       }
-      
-      console.log(`[available-models] ✅ Fallback: ${Object.keys(fallbackModels).length} providers habilitados`);
-      modelsCache.set(fallbackModels);
-      return res.json(fallbackModels);
+
+      allModels = fallbackModels;
+      console.log(`[available-models] ✅ Fallback: ${Object.keys(allModels).length} providers habilitados`);
     }
-    
-    
-    // 4. Filtrar solo providers habilitados
-    const filteredModels = {};
+
+    // 6. Filtrar solo providers habilitados
+    const availableModels = {};
     for (const [provider, models] of Object.entries(allModels)) {
       if (enabledProviders.has(provider)) {
-        filteredModels[provider] = models;
+        availableModels[provider] = models;
       }
     }
-    
-    console.log(`[available-models] ✅ Retornando ${Object.keys(filteredModels).length} providers habilitados`);
-    
-    // 5. Guardar en caché y retornar
-    modelsCache.set(filteredModels);
-    res.json(filteredModels);
-    
+
+    console.log(`[available-models] ✅ Retornando ${Object.keys(availableModels).length} providers habilitados`);
+
+    // 7. Guardar en caché y retornar
+    modelsCache.set(availableModels);
+    res.json(availableModels);
+
   } catch (e) {
     console.error('[available-models] ❌ ERROR:', e);
     res.status(500).json({ error: e.message });
@@ -195,7 +167,7 @@ router.put("/", async (req, res) => {
         { upsert: true, new: true }
       );
     }
-    
+
     // Si se actualizó defaultAgentModel, sincronizar con OpenClaw y reiniciar gateway
     if (body.defaultAgentModel !== undefined) {
       const { syncAuthProfiles } = require("../lib/sync-openclaw-auth");
@@ -225,13 +197,13 @@ router.put("/", async (req, res) => {
       invalidateFallbackCache();
       console.log(`[PUT /config] Caché de fallback invalidado por cambio en modelos de soporte`);
     }
-    
+
     // Si se actualizaron credenciales, invalidar caché de modelos
     if (body.credentials !== undefined) {
       console.log('[PUT /config] 🗑️  Invalidando caché de modelos por cambio en credenciales');
       modelsCache.clear();
     }
-    
+
     const docs = await Config.find().lean();
     const map = {};
     docs.forEach((d) => (map[d.key] = d.value));
@@ -242,7 +214,6 @@ router.put("/", async (req, res) => {
 });
 
 module.exports = router;
-
 // Exportar función para invalidar caché (usado por credentials.js)
 module.exports.clearModelsCache = () => {
   modelsCache.clear();

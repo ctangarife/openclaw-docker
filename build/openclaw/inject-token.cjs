@@ -32,9 +32,8 @@ config.gateway.auth = { ...config.gateway.auth, mode: 'token', token };
 config.gateway.remote = { ...config.gateway.remote, token };
 config.gateway.trustedProxies = config.gateway.trustedProxies || ['172.16.0.0/12', '10.0.0.0/8'];
 
-// Configurar modelo por defecto solo si no está definido
-// El modelo se puede configurar desde MongoDB (app_config.defaultAgentModel)
-// o se usará el primer provider disponible con credenciales
+// NOTA: El modelo por defecto se configura desde MongoDB (app_config.defaultAgentModel)
+// vía entrypoint.sh, no se establece ningún fallback aquí
 if (!config.agents) {
   config.agents = {};
 }
@@ -44,12 +43,11 @@ if (!config.agents.defaults) {
 if (!config.agents.defaults.model) {
   config.agents.defaults.model = {};
 }
-// Solo establecer minimax si no hay modelo configurado o si es anthropic (sin credenciales)
-if (!config.agents.defaults.model.primary || config.agents.defaults.model.primary === 'anthropic/claude-opus-4-6') {
-  config.agents.defaults.model.primary = 'minimax/MiniMax-M2.1';
-  console.log('✅ Modelo por defecto configurado (fallback):', config.agents.defaults.model.primary);
-} else {
+// No establecer modelo aquí - se configura desde MongoDB en entrypoint.sh
+if (config.agents.defaults.model.primary) {
   console.log('✅ Modelo ya configurado:', config.agents.defaults.model.primary);
+} else {
+  console.log('⚠️  Modelo no configurado - se establecerá desde MongoDB (admin/config)');
 }
 // allowInsecureAuth: solo activar en desarrollo. En producción, deshabilitar y usar pairing de dispositivos.
 // Variable de entorno: OPENCLAW_ALLOW_INSECURE_AUTH=true (por defecto: false en producción)
@@ -68,14 +66,11 @@ if (allowInsecureAuth) {
   }
 }
 
-// Asegurar que agents.defaults.model.primary esté configurado ANTES de escribir
-// Solo si no está definido o es anthropic
+// Asegurar estructura de agents pero NO sobreescribir el modelo
+// El modelo se configura desde MongoDB (entrypoint.sh)
 if (!config.agents) config.agents = {};
 if (!config.agents.defaults) config.agents.defaults = {};
 if (!config.agents.defaults.model) config.agents.defaults.model = {};
-if (!config.agents.defaults.model.primary || config.agents.defaults.model.primary === 'anthropic/claude-opus-4-6') {
-  config.agents.defaults.model.primary = 'minimax/MiniMax-M2.1';
-}
 
 fs.writeFileSync(path, JSON.stringify(config, null, 2), 'utf8');
 

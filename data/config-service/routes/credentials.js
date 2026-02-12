@@ -127,6 +127,17 @@ router.get("/available-providers", (req, res) => {
         helpText: "Documentación de Z.AI"
       },
       {
+        value: "google",
+        label: "Google (Gemini)",
+        group: "Google",
+        description: "Google Gemini 2.0 Flash, 1.5 Pro y más. Requiere GEMINI_API_KEY.",
+        defaultName: "Google Gemini",
+        tokenLabel: "GEMINI_API_KEY",
+        tokenPlaceholder: "Ingresa tu API key de Google",
+        helpUrl: "https://ai.google.dev/gemini-api/docs",
+        helpText: "Documentación de Google Gemini"
+      },
+      {
         value: "minimax",
         label: "MiniMax M2.1",
         group: "Otros proveedores",

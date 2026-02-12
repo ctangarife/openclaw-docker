@@ -293,7 +293,7 @@ const groupedProviders = computed(() => {
   // Ordenar grupos y providers
   return Object.values(groups).sort((a, b) => {
     // Orden personalizado de grupos
-    const groupOrder = ['Anthropic', 'OpenAI', 'Otros proveedores', 'Gateways', 'Genérico'];
+    const groupOrder = ['Anthropic', 'Google', 'OpenAI', 'Otros proveedores', 'Gateways', 'Genérico'];
     const aIndex = groupOrder.indexOf(a.name);
     const bIndex = groupOrder.indexOf(b.name);
 

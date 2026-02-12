@@ -39,7 +39,7 @@ const NATIVE_PROVIDER_MODELS = {
   'deepseek': 'deepseek/deepseek-chat',
   'opencode': 'opencode/claude-opus-4-5',
   'vercel-ai-gateway': 'vercel-ai-gateway/anthropic/claude-3.5-sonnet',
-  'zai': 'zai/glm-4-plus'
+  'zai': 'zai/glm-5'
 };
 
 // Lista de modelos disponibles para providers nativos
@@ -98,6 +98,14 @@ const NATIVE_PROVIDER_MODEL_LIST = {
     { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
     { id: 'google/gemini-pro', name: 'Gemini Pro' },
     { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' }
+  ],
+  'zai': [
+    { id: 'glm-4-plus', name: 'GLM-4 Plus' },
+    { id: 'glm-4-air', name: 'GLM-4 Air' },
+    { id: 'glm-4-flash', name: 'GLM-4 Flash' },
+    { id: 'glm-4.6', name: 'GLM-4.6' },
+    { id: 'glm-4.7', name: 'GLM-4.7' },
+    { id: 'glm-5', name: 'GLM-5' }
   ]
 };
 

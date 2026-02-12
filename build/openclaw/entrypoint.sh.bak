@@ -113,13 +113,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
         auth: { mode: 'token', token: '$TOKEN' },
         remote: { token: '$TOKEN' },
         trustedProxies: ['172.16.0.0/12', '10.0.0.0/8']
-      },
-      agents: {
-        defaults: {
-          model: {
-            primary: 'minimax/MiniMax-M2.1'
-          }
-        }
       }
     };
     if ('$OPENCLAW_ALLOW_INSECURE_AUTH' === 'true') {
@@ -146,19 +139,19 @@ if [ "$GATEWAY_MODE" != "local" ]; then
   "
 fi
 
-# Configurar modelo desde MongoDB (o fallback)
+# Configurar modelo desde MongoDB
 echo "Configurando modelo por defecto..." >&2
 CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KEY" node -e "
   const fs = require('fs');
   const mongoose = require('mongoose');
   const path = process.env.CONFIG_FILE;
   const mongoUri = process.env.MONGO_URI;
-  
+
   let config = JSON.parse(fs.readFileSync(path, 'utf8'));
-  
+
   async function setModel() {
     let defaultModel = null;
-    
+
     // Leer desde MongoDB
     if (mongoUri) {
       try {
@@ -177,38 +170,37 @@ CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KE
         console.log('⚠️  No se pudo leer desde MongoDB:', err.message);
       }
     }
-    
-    // Fallback si no hay modelo configurado
+
+    // Si no hay modelo configurado, mantener el actual (no usar fallback)
     if (!defaultModel) {
-      defaultModel = 'minimax/MiniMax-M2.1';
-      console.log('✅ Usando fallback:', defaultModel);
+      const currentModel = config.agents?.defaults?.model?.primary;
+      if (currentModel) {
+        console.log('⚠️  Sin modelo en MongoDB, manteniendo actual:', currentModel);
+        return;
+      } else {
+        console.log('⚠️  Sin modelo configurado en MongoDB ni actual. Se debe configurar desde admin/config');
+        return;
+      }
     }
-    
+
     // Configurar modelo en openclaw.json
     if (!config.agents) config.agents = {};
     if (!config.agents.defaults) config.agents.defaults = {};
     if (!config.agents.defaults.model) config.agents.defaults.model = {};
-    
+
     const currentModel = config.agents.defaults.model.primary;
-    if (!currentModel || currentModel === 'anthropic/claude-opus-4-6' || currentModel.startsWith('anthropic/')) {
-      config.agents.defaults.model.primary = defaultModel;
-      console.log('✅ Modelo configurado:', currentModel || 'undefined', '→', defaultModel);
-    } else {
-      console.log('✅ Modelo ya configurado:', currentModel);
-    }
+    // Siempre usar el modelo de MongoDB (respetar selección del usuario en admin/config)
+    config.agents.defaults.model.primary = defaultModel;
+    console.log('✅ Modelo configurado:', currentModel || 'undefined', '→', defaultModel);
     
     fs.writeFileSync(path, JSON.stringify(config, null, 2), 'utf8');
     const fd = fs.openSync(path, 'r+');
     fs.fsyncSync(fd);
     fs.closeSync(fd);
-    
+
     // Verificar
     const verify = JSON.parse(fs.readFileSync(path, 'utf8'));
     const finalModel = verify.agents?.defaults?.model?.primary;
-    if (!finalModel || finalModel === 'anthropic/claude-opus-4-6' || finalModel.startsWith('anthropic/')) {
-      console.error('❌ ERROR: Modelo no configurado correctamente:', finalModel);
-      process.exit(1);
-    }
     console.log('✅ Modelo final:', finalModel);
   }
   
