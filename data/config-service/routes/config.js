@@ -103,36 +103,50 @@ router.get("/available-models", async (req, res) => {
     // 4. Obtener modelos desde el catálogo dinámico de OpenClaw
     let allModels = await fetchModelsFromOpenClaw();
 
-    // 5. Si OpenClaw falla o no retorna modelos, usar fallback con provider-templates.js
-    if (!allModels || Object.keys(allModels).length === 0) {
-      console.log('[available-models] ⚠️  OpenClaw no retornó modelos, usando fallback');
-      const { NATIVE_PROVIDER_MODEL_LIST, PROVIDER_TEMPLATES } = require("../lib/provider-templates");
+    // 5. SIEMPRE agregar modelos del fallback (merge con OpenClaw)
+    // Esto asegura que tengamos todos los modelos, no solo los que OpenClaw reporta
+    const { NATIVE_PROVIDER_MODEL_LIST, PROVIDER_TEMPLATES } = require("../lib/provider-templates");
 
-      const fallbackModels = {};
-
-      // Agregar modelos nativos (solo providers habilitados)
-      for (const [provider, models] of Object.entries(NATIVE_PROVIDER_MODEL_LIST)) {
-        if (enabledProviders.has(provider)) {
-          fallbackModels[provider] = models.map(m => ({
-            id: `${provider}/${m.id}`,
-            name: m.name
-          }));
+    // Agregar modelos nativos del fallback (solo providers habilitados)
+    for (const [provider, models] of Object.entries(NATIVE_PROVIDER_MODEL_LIST)) {
+      if (enabledProviders.has(provider)) {
+        if (!allModels[provider]) {
+          allModels[provider] = [];
+        }
+        // Agregar modelos que no están en OpenClaw
+        const existingIds = new Set(allModels[provider].map(m => m.id));
+        for (const m of models) {
+          const modelId = `${provider}/${m.id}`;
+          if (!existingIds.has(modelId)) {
+            allModels[provider].push({
+              id: modelId,
+              name: m.name
+            });
+          }
         }
       }
-
-      // Agregar modelos personalizados (solo providers habilitados)
-      for (const [provider, config] of Object.entries(PROVIDER_TEMPLATES)) {
-        if (enabledProviders.has(provider)) {
-          fallbackModels[provider] = config.models.map(m => ({
-            id: `${provider}/${m.id}`,
-            name: m.name
-          }));
-        }
-      }
-
-      allModels = fallbackModels;
-      console.log(`[available-models] ✅ Fallback: ${Object.keys(allModels).length} providers habilitados`);
     }
+
+    // Agregar modelos personalizados del fallback (solo providers habilitados)
+    for (const [provider, config] of Object.entries(PROVIDER_TEMPLATES)) {
+      if (enabledProviders.has(provider)) {
+        if (!allModels[provider]) {
+          allModels[provider] = [];
+        }
+        const existingIds = new Set(allModels[provider].map(m => m.id));
+        for (const m of config.models) {
+          const modelId = `${provider}/${m.id}`;
+          if (!existingIds.has(modelId)) {
+            allModels[provider].push({
+              id: modelId,
+              name: m.name
+            });
+          }
+        }
+      }
+    }
+
+    console.log(`[available-models] ✅ Total modelos: ${Object.values(allModels).flat().length} de ${Object.keys(allModels).length} providers`);
 
     // 6. Filtrar solo providers habilitados
     const availableModels = {};

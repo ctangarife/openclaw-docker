@@ -104,14 +104,6 @@ if [ -n "$MONGO_URI" ] && [ -n "$ENCRYPTION_KEY" ] && [ -f /app/sync-auth-profil
     fi
   fi
 
-  # LIMPIAR VARIABLES SENSIBLES DEL ENTORNO
-  # Estas variables ya no son necesarias después de la sincronización
-  # y removerlas previene exfiltración vía process.env
-  unset ENCRYPTION_KEY 2>/dev/null || true
-  unset MONGO_URI 2>/dev/null || true
-  unset MONGO_PASSWORD 2>/dev/null || true
-  unset MONGO_INITDB_ROOT_USERNAME 2>/dev/null || true
-  echo "🔒 Variables sensibles removidas del entorno del proceso" >&2
 fi
 
 # Asegurar que openclaw.json existe
@@ -154,7 +146,7 @@ fi
 
 # Configurar modelo desde MongoDB
 echo "Configurando modelo por defecto..." >&2
-CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KEY" node -e "
+CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" node -e "
   const fs = require('fs');
   const mongoose = require('mongoose');
   const path = process.env.CONFIG_FILE;
@@ -165,23 +157,56 @@ CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KE
   async function setModel() {
     let defaultModel = null;
 
-    // Leer desde MongoDB
+    // Leer desde MongoDB con reintentos
     if (mongoUri) {
-      try {
-        await mongoose.connect(mongoUri);
-        const ConfigModel = mongoose.model('Config', new mongoose.Schema(
-          { key: String, value: mongoose.Schema.Types.Mixed },
-          { collection: 'app_config' }
-        ));
-        const modelConfig = await ConfigModel.findOne({ key: 'defaultAgentModel' }).lean();
-        if (modelConfig?.value) {
-          defaultModel = modelConfig.value;
-          console.log('✅ Modelo desde MongoDB:', defaultModel);
+      const maxRetries = 5;
+      const retryDelay = 2000; // 2 segundos
+
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          console.log('🔗 Conectando a MongoDB (intento ' + (i + 1) + '/' + maxRetries + ')...');
+          await mongoose.connect(mongoUri, {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 5000
+          });
+          console.log('✅ Conectado a MongoDB');
+
+          // Usar modelo existente o crear uno nuevo
+          const ConfigModel = mongoose.models.Config || mongoose.model('Config', new mongoose.Schema(
+            { key: String, value: mongoose.Schema.Types.Mixed },
+            { collection: 'app_config', timestamps: true }
+          ));
+
+          console.log('🔍 Buscando defaultAgentModel en app_config...');
+          const modelConfig = await ConfigModel.findOne({ key: 'defaultAgentModel' }).lean();
+          console.log('📄 Query result:', JSON.stringify(modelConfig));
+
+          if (modelConfig?.value) {
+            defaultModel = modelConfig.value;
+            console.log('✅ Modelo desde MongoDB:', defaultModel);
+          } else {
+            console.log('⚠️  Documento defaultAgentModel no encontrado o value es null/vacío');
+            // Listar todos los documentos para debug
+            const allDocs = await ConfigModel.find({}).lean();
+            console.log('📋 Todos los documentos en app_config:', allDocs.map(d => ({ key: d.key, valueType: typeof d.value, value: d.value })));
+          }
+
+          await mongoose.disconnect();
+          break; // Exit retry loop on success
+        } catch (err) {
+          console.log('⚠️  Error en intento ' + (i + 1) + ':', err.message);
+          await mongoose.disconnect().catch(() => {});
+
+          if (i < maxRetries - 1) {
+            console.log('⏳ Reintentando en ' + retryDelay + 'ms...');
+            await new Promise(r => setTimeout(r, retryDelay));
+          } else {
+            console.log('❌ Agotados los reintentos de conexión a MongoDB');
+          }
         }
-        await mongoose.disconnect();
-      } catch (err) {
-        console.log('⚠️  No se pudo leer desde MongoDB:', err.message);
       }
+    } else {
+      console.log('⚠️  MONGO_URI no está definida');
     }
 
     // Si no hay modelo configurado, mantener el actual (no usar fallback)
@@ -214,11 +239,12 @@ CONFIG_FILE="$CONFIG_FILE" MONGO_URI="$MONGO_URI" ENCRYPTION_KEY="$ENCRYPTION_KE
     // Verificar
     const verify = JSON.parse(fs.readFileSync(path, 'utf8'));
     const finalModel = verify.agents?.defaults?.model?.primary;
-    console.log('✅ Modelo final:', finalModel);
+    console.log('✅ Modelo final verificado:', finalModel);
   }
 
   setModel().catch(err => {
-    console.error('Error:', err.message);
+    console.error('❌ Error fatal:', err.message);
+    console.error(err.stack);
     process.exit(1);
   });
 " 2>&1
