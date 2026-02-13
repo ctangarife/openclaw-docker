@@ -15,8 +15,8 @@ services:
       # el volumen tiene datos viejos: docker compose down -v && docker compose up -d
       - mongodb_data:/data/db
       - ./db/init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
-    ports:
-      - "27017:27017"
+    expose:
+      - "27017"
     networks:
       molbot_net:
         aliases:
