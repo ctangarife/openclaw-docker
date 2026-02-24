@@ -5,6 +5,7 @@
       <router-link to="/channels">Canales</router-link>
       <router-link to="/integrations">Integraciones</router-link>
       <router-link to="/agent-browser">Agent Browser</router-link>
+      <router-link to="/agents">Agents</router-link>
       <router-link to="/config">Configuración</router-link>
       <button class="logout" @click="logout">Salir</button>
     </nav>

@@ -48,7 +48,7 @@ const PROVIDER_VALIDATION_CONFIG = {
     skipValidation: true // OAuth flow
   },
   'zai': {
-    url: 'https://open.bigmodel.cn/api/paas/v4/models',
+    url: 'https://api.z.ai/api/anthropic/v1/models',
     method: 'GET',
     headers: {},
     validateResponse: (response) => {

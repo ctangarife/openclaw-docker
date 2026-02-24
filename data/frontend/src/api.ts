@@ -225,3 +225,74 @@ export async function resetAgentBrowserConfig() {
     };
   }>;
 }
+
+// Agents API
+
+export interface Agent {
+  id: string;
+  name?: string;
+  workspace?: string;
+  model?: string;
+  default?: boolean;
+}
+
+export interface Binding {
+  agentId: string;
+  match: {
+    channel?: string;
+    accountId?: string;
+    peer?: {
+      kind: 'direct' | 'group';
+      id: string;
+    };
+    guildId?: string;
+    teamId?: string;
+  };
+}
+
+export interface AgentsResponse {
+  success: boolean;
+  agents?: Agent[];
+  bindings?: Binding[];
+  error?: string;
+}
+
+export async function getAgents(): Promise<AgentsResponse> {
+  const r = await fetch(`${API_BASE}/api/agents`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json() as Promise<AgentsResponse>;
+}
+
+export async function createAgent(
+  id: string,
+  options?: {
+    name?: string;
+    workspace?: string;
+    model?: string;
+  }
+): Promise<{ success: boolean; message?: string; agent?: Agent; gatewayRestarted?: boolean; error?: string }> {
+  const r = await fetch(`${API_BASE}/api/agents`, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify({ id, ...options }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function deleteAgent(
+  id: string
+): Promise<{ success: boolean; message?: string; gatewayRestarted?: boolean; error?: string }> {
+  const r = await fetch(`${API_BASE}/api/agents/${id}`, {
+    method: "DELETE",
+    headers: getHeaders(),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getBindings(): Promise<{ success: boolean; bindings?: Binding[]; error?: string }> {
+  const r = await fetch(`${API_BASE}/api/agents/bindings`, { headers: getHeaders() });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}

@@ -90,16 +90,17 @@ async function restartGatewayWithRetry() {
 async function execInGateway(command, options = {}) {
   const timeout = options.timeout || 30000;
   const user = options.user || 'node';
-  const args = ['exec'];
-  
+  const args = [];
+
   if (user) {
     args.push('-u', user);
   }
-  
-  args.push(GATEWAY_CONTAINER, 'sh', '-c', command);
-  
+
+  // Importante: el comando para sh -c debe ir entre comillas
+  args.push(GATEWAY_CONTAINER, 'sh', '-c', `"${command}"`);
+
   console.log(`[docker-utils] Ejecutando en ${GATEWAY_CONTAINER}: ${command}`);
-  
+
   return await dockerCommand('exec', args, { timeout });
 }
 
@@ -174,13 +175,205 @@ async function checkDockerAvailable() {
   };
 }
 
+/**
+ * Ejecuta comando de OpenClaw CLI para listar agentes
+ * @returns {Promise<{success: boolean, agents?: Array, error?: string}>}
+ */
+async function listAgents() {
+  const result = await execInGateway('openclaw agents list --json', { timeout: 15000 });
+
+  // Debug logging
+  console.log('[listAgents] result.success:', result.success);
+  console.log('[listAgents] result.stdout length:', result.stdout?.length);
+  console.log('[listAgents] result.stdout:', result.stdout?.substring(0, 200));
+
+  // Considerar exitoso si hay stdout válido JSON, incluso si el exit code no es 0
+  // (el bash puede retornar exit code 1 por errores de la shell, pero el comando funcionó)
+  if (result.stdout && result.stdout.trim().length > 0) {
+    try {
+      // Limpiar el stdout: eliminar cualquier texto antes o después del array JSON
+      let cleanStdout = result.stdout;
+      const firstBracketIndex = cleanStdout.indexOf('[');
+      const lastBracketIndex = cleanStdout.lastIndexOf(']');
+      if (firstBracketIndex !== -1 && lastBracketIndex !== -1 && lastBracketIndex > firstBracketIndex) {
+        cleanStdout = cleanStdout.substring(firstBracketIndex, lastBracketIndex + 1);
+      }
+
+      const agents = JSON.parse(cleanStdout);
+      // Si es un array válido (incluso vacío), considerar exitoso
+      if (Array.isArray(agents)) {
+        console.log('[listAgents] Parsed agents count:', agents.length);
+        return { success: true, agents };
+      }
+    } catch (e) {
+      console.log('[listAgents] JSON parse error:', e.message);
+      return { success: false, error: `Error parsing JSON: ${e.message}`, raw: result.stdout };
+    }
+  }
+
+  console.log('[listAgents] No valid stdout found');
+  return { success: false, error: result.error || 'Error listing agents', raw: result.stdout };
+}
+
+/**
+ * Ejecuta comando de OpenClaw CLI para crear un agente
+ * @param {string} agentId - ID del agente a crear
+ * @param {object} options - Opciones adicionales (name, workspace, model, etc)
+ * @returns {Promise<{success: boolean, agent?: object, error?: string}>}
+ */
+async function createAgent(agentId, options = {}) {
+  const { name, workspace, model } = options;
+
+  // Construir comando con flags opcionales
+  // Sintaxis: openclaw agents add [--non-interactive] [--workspace <dir>] [--model <id>] <agentId>
+  let cmd = 'openclaw agents add --json';
+
+  if (workspace) {
+    cmd += ' --non-interactive';
+    // Siempre prependear /home/node/.openclaw/ al workspace
+    // Remover cualquier prefijo ~/.openclaw/ o ~/ que el usuario haya ingresado
+    let cleanWorkspace = workspace;
+    if (cleanWorkspace.startsWith('~/.openclaw/')) {
+      cleanWorkspace = cleanWorkspace.substring(12);
+    } else if (cleanWorkspace.startsWith('~/')) {
+      cleanWorkspace = cleanWorkspace.substring(2);
+    }
+    const expandedWorkspace = '/home/node/.openclaw/' + cleanWorkspace;
+    cmd += ` --workspace ${expandedWorkspace}`;
+  }
+  if (model) {
+    // No usar comillas (no hay espacios en los IDs de modelos)
+    cmd += ` --model ${model}`;
+  }
+
+  // El agentId va al final como argumento posicional
+  cmd += ` ${agentId}`;
+
+  console.log(`[docker-utils] Creando agente: ${cmd}`);
+
+  const result = await execInGateway(cmd, { timeout: 30000 });
+
+  // Verificar si el comando funcionó (stdout contiene JSON válido con agentId)
+  // El bash puede retornar exit code 1 pero el comando funcionó correctamente
+  let commandSucceeded = result.success;
+
+  if (!commandSucceeded && result.stdout) {
+    try {
+      const output = JSON.parse(result.stdout);
+      if (output && output.agentId === agentId) {
+        commandSucceeded = true;
+        console.log(`[docker-utils] Agente creado exitosamente (detectado por stdout)`);
+      }
+    } catch (e) {
+      // No es JSON válido, commandSucceeded permanece false
+    }
+  }
+
+  if (commandSucceeded) {
+    // Si se proporcionó un nombre, actualizar la identidad del agente
+    if (name) {
+      console.log(`[docker-utils] Actualizando identidad del agente ${agentId} a "${name}"`);
+      const identityCmd = `openclaw agents set-identity ${agentId} --name ${name}`;
+      const identityResult = await execInGateway(identityCmd, { timeout: 15000 });
+      if (!identityResult.success) {
+        console.warn(`[docker-utils] No se pudo actualizar el nombre: ${identityResult.stderr}`);
+      }
+    }
+
+    // Obtener la lista actualizada para retornar el agente creado
+    const listResult = await listAgents();
+    if (listResult.success) {
+      const createdAgent = listResult.agents.find(a => a.id === agentId);
+      return { success: true, agent: createdAgent };
+    }
+    return { success: true };
+  }
+
+  return { success: false, error: result.error || 'Error creating agent', stderr: result.stderr };
+}
+
+/**
+ * Ejecuta comando de OpenClaw CLI para eliminar un agente
+ * @param {string} agentId - ID del agente a eliminar
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function deleteAgent(agentId) {
+  const result = await execInGateway(`openclaw agents delete --force ${agentId}`, { timeout: 15000 });
+
+  if (result.success) {
+    return { success: true };
+  }
+
+  return { success: false, error: result.error || 'Error deleting agent', stderr: result.stderr };
+}
+
+/**
+ * Ejecuta comando de OpenClaw CLI para listar bindings
+ * @returns {Promise<{success: boolean, bindings?: Array, error?: string}>}
+ */
+async function listBindings() {
+  const result = await execInGateway('openclaw agents list --bindings --json', { timeout: 15000 });
+
+  // Debug logging
+  console.log('[listBindings] result.success:', result.success);
+  console.log('[listBindings] result.stdout length:', result.stdout?.length);
+  console.log('[listBindings] result.stdout:', result.stdout?.substring(0, 200));
+
+  // Considerar exitoso si hay stdout válido JSON
+  if (result.stdout && result.stdout.trim().length > 0) {
+    try {
+      // Limpiar el stdout: eliminar cualquier texto antes o después del array JSON
+      let cleanStdout = result.stdout;
+      const firstBracketIndex = cleanStdout.indexOf('[');
+      const lastBracketIndex = cleanStdout.lastIndexOf(']');
+      if (firstBracketIndex !== -1 && lastBracketIndex !== -1 && lastBracketIndex > firstBracketIndex) {
+        cleanStdout = cleanStdout.substring(firstBracketIndex, lastBracketIndex + 1);
+      }
+
+      const bindings = JSON.parse(cleanStdout);
+      if (Array.isArray(bindings)) {
+        console.log('[listBindings] Parsed bindings count:', bindings.length);
+        return { success: true, bindings };
+      }
+    } catch (e) {
+      console.log('[listBindings] JSON parse error:', e.message);
+      return { success: false, error: `Error parsing JSON: ${e.message}`, raw: result.stdout };
+    }
+  }
+
+  console.log('[listBindings] No valid stdout found');
+  return { success: false, error: result.error || 'Error listing bindings', raw: result.stdout };
+}
+
+/**
+ * Obtiene información completa de agentes y bindings
+ * @returns {Promise<{success: boolean, agents?: Array, bindings?: Array, error?: string}>}
+ */
+async function getAgentsInfo() {
+  const agentsResult = await listAgents();
+  const bindingsResult = await listBindings();
+
+  return {
+    success: agentsResult.success && bindingsResult.success,
+    agents: agentsResult.agents || [],
+    bindings: bindingsResult.bindings || [],
+    error: (!agentsResult.success && agentsResult.error) || (!bindingsResult.success && bindingsResult.error) || undefined
+  };
+}
+
 module.exports = {
   restartGateway,
-  restartGatewayWithRetry,  // Nueva función con retry automático
+  restartGatewayWithRetry,
   execInGateway,
   checkGatewayStatus,
   getGatewayLogs,
   checkDockerAvailable,
   dockerCommand,
-  GATEWAY_CONTAINER
+  GATEWAY_CONTAINER,
+  // OpenClaw agents functions
+  listAgents,
+  createAgent,
+  deleteAgent,
+  listBindings,
+  getAgentsInfo
 };

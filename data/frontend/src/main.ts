@@ -8,6 +8,7 @@ import Channels from "./views/Channels.vue";
 import Telegram from "./views/Telegram.vue";
 import Integrations from "./views/Integrations.vue";
 import AgentBrowser from "./views/AgentBrowser.vue";
+import Agents from "./views/Agents.vue";
 import Layout from "./components/Layout.vue";
 
 const routes = [
@@ -22,6 +23,7 @@ const routes = [
       { path: "channels", component: Channels },
       { path: "integrations", component: Integrations },
       { path: "agent-browser", component: AgentBrowser },
+      { path: "agents", component: Agents },
     ],
   },
 ];
