@@ -121,7 +121,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
       }
     };
     if ('$OPENCLAW_ALLOW_INSECURE_AUTH' === 'true') {
-      config.gateway.controlUi = { allowInsecureAuth: true };
+      config.gateway.controlUi = { allowInsecureAuth: true, dangerouslyAllowHostHeaderOriginFallback: true };
+    } else {
+      config.gateway.controlUi = { dangerouslyAllowHostHeaderOriginFallback: true };
     }
     fs.writeFileSync(path, JSON.stringify(config, null, 2), 'utf8');
   "
@@ -140,6 +142,9 @@ if [ "$GATEWAY_MODE" != "local" ]; then
     if (!config.gateway.auth) config.gateway.auth = { mode: 'token', token: '$TOKEN' };
     if (!config.gateway.remote) config.gateway.remote = { token: '$TOKEN' };
     if (!config.gateway.trustedProxies) config.gateway.trustedProxies = ['172.16.0.0/12', '10.0.0.0/8'];
+    // Control UI: Permitir acceso desde cualquier origen vía Host header
+    config.gateway.controlUi = config.gateway.controlUi || {};
+    config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
     fs.writeFileSync(path, JSON.stringify(config, null, 2), 'utf8');
   "
 fi

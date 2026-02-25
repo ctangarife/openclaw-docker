@@ -32,6 +32,11 @@ config.gateway.auth = { ...config.gateway.auth, mode: 'token', token };
 config.gateway.remote = { ...config.gateway.remote, token };
 config.gateway.trustedProxies = config.gateway.trustedProxies || ['172.16.0.0/12', '10.0.0.0/8'];
 
+// Control UI: Permitir acceso desde cualquier origen vía Host header
+// Esto permite acceder al dashboard desde dominios externos, IPs, etc.
+config.gateway.controlUi = config.gateway.controlUi || {};
+config.gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true;
+
 // NOTA: El modelo por defecto se configura desde MongoDB (app_config.defaultAgentModel)
 // vía entrypoint.sh, no se establece ningún fallback aquí
 if (!config.agents) {
